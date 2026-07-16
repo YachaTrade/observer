@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SET synchronous_commit = 'on'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "ad874d0e7a1c3130848beed6179735a32bf02fa748219f1ad58366e5da339dcf"
+}

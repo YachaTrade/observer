@@ -1,0 +1,83 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_USER: nadsadmin
+          POSTGRES_PASSWORD: nadsadmin
+          POSTGRES_DB: pump
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:latest
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+      
+      - name: Set up cargo cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check code format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Run tests
+        run: cargo test --verbose
+        env:
+          DATABASE_URL: "postgres://nadsadmin:nadsadmin@localhost:5432/pump"
+          REDIS_URL: "redis://localhost:6379"
+          START_BLOCK: "3800000"
+          END_BLOCK: "99999999999"
+          BLOCK_BATCH_SIZE: "50"
+          BLOCK_INTERVAL: "100"
+          BONDING_CURVE_FACTORY: "0x60216FB3285595F4643f9f7cddAB842E799BD642"
+          KEYSTORE_PASSWORD: "nadsadmin"
+          KEY_VALUE_DATABASE_DIR: "./key_value"
+          MAIN_RPC_URL: "http://monad-devnet-full.bharvest.io:8080"
+
+      - name: Build
+        run: cargo build --verbose

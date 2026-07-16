@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM token_metadata\n            WHERE metadata_url = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "10803ee8dffadd04476101db60a1347ce09f9ffe1aa62670083a48b3bcc9b974"
+}

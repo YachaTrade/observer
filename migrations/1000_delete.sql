@@ -1,0 +1,45 @@
+-- DO $$
+-- DECLARE
+--     r RECORD;
+--     excluded_tables TEXT[] := ARRAY[
+--         'account',
+--         'account_session',
+--         'account_x',
+--         'account_verified',
+--         'account_wallet',
+--         'monad_airdrop'
+--     ];
+-- BEGIN
+--     -- 모든 트리거 삭제
+--     FOR r IN (
+--         SELECT DISTINCT trigger_name, event_object_table
+--         FROM information_schema.triggers
+--         WHERE trigger_schema = 'public'
+--     ) LOOP
+--         EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I CASCADE', r.trigger_name, r.event_object_table);
+--     END LOOP;
+    
+--     -- 모든 함수 삭제 (extension 소유 함수 제외)
+--     FOR r IN (
+--         SELECT p.proname as routine_name
+--         FROM pg_proc p
+--         JOIN pg_namespace n ON p.pronamespace = n.oid
+--         LEFT JOIN pg_depend d ON d.objid = p.oid AND d.deptype = 'e'
+--         WHERE n.nspname = 'public'
+--         AND d.objid IS NULL
+--     ) LOOP
+--         EXECUTE format('DROP FUNCTION IF EXISTS %I CASCADE', r.routine_name);
+--     END LOOP;
+    
+--     -- account 관련 테이블을 제외한 모든 테이블 삭제
+--     FOR r IN (
+--         SELECT tablename
+--         FROM pg_tables
+--         WHERE schemaname = 'public'
+--         AND tablename != ALL(excluded_tables)
+--         ORDER BY tablename
+--     ) LOOP
+--         EXECUTE format('DROP TABLE IF EXISTS %I CASCADE', r.tablename);
+--         RAISE NOTICE 'Dropped table: %', r.tablename;
+--     END LOOP;
+-- END $$;
