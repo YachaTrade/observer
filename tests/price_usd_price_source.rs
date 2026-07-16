@@ -39,7 +39,7 @@ fn pt(price: &str, conf: &str) -> PriceUsdPoint {
 
 #[test]
 fn distinct_query_coin_refs_dedupes_shared_query_address() {
-    // MON, LVMON, WMON all query mainnet WMON -> request `monad:0xWMON` ONCE.
+    // MON, LVMON, WMON all query the same mainnet address -> request its coin ref ONCE.
     let tokens = vec![
         wt("0xMON", "0xWMON"),
         wt("0xLVMON", "0xWMON"),
