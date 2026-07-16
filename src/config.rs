@@ -22,17 +22,17 @@ lazy_static! {
         normalize_required_env_address("DEX_ROUTER");
     pub static ref LP_MANAGER_ADDRESS: String =
         normalize_required_env_address("LP_MANAGER");
-    // WMON address, normalized to EIP-55 checksum form at load time.
+    // WETH address, normalized to EIP-55 checksum form at load time.
     // The env var may be set in any valid casing (lowercase, checksum,
     // etc.); we parse it through `alloy::primitives::Address` (case-
     // insensitive) and re-emit it via `Display`, which writes EIP-55.
     // This guarantees lex-equality with every alloy-derived address
     // downstream regardless of operator env casing.
     pub static ref WNATIVE_ADDRESS: String = {
-        let raw = env::var("WMON").expect("WMON must be set");
+        let raw = env::var("WETH").expect("WETH must be set");
         let parsed: Address = raw
             .parse()
-            .unwrap_or_else(|e| panic!("WMON env var is not a valid EVM address '{}': {}", raw, e));
+            .unwrap_or_else(|e| panic!("WETH env var is not a valid EVM address '{}': {}", raw, e));
         parsed.to_string()
     };
 
@@ -205,7 +205,7 @@ pub async fn init_quote_configs_from_db(pool: &sqlx::PgPool) -> anyhow::Result<(
     .map_err(|e| anyhow::anyhow!("failed to load quote_token table: {}", e))?;
 
     if rows.is_empty() {
-        panic!("quote_token table is empty — at least one quote (e.g. WMON) must be seeded");
+        panic!("quote_token table is empty — at least one quote (e.g. WETH) must be seeded");
     }
 
     let configs: Vec<QuoteConfig> = rows

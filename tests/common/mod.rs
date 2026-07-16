@@ -36,8 +36,8 @@ pub async fn setup_test_db() -> Result<TestDb> {
     // and are only consulted by this process. No other thread reads env
     // while we're setting it.
     unsafe {
-        if std::env::var("WMON").is_err() {
-            std::env::set_var("WMON", "0x760AfE15c6AB78f59cd24C2f5b9aeB8C82d95c5b");
+        if std::env::var("WETH").is_err() {
+            std::env::set_var("WETH", "0x4200000000000000000000000000000000000006");
         }
         if std::env::var("QUOTE_CONFIGS").is_err() {
             std::env::set_var(
