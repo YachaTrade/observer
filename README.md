@@ -2,6 +2,8 @@
 
 Nad.fun Observer indexes the active GIWA contract events and common price/token streams into PostgreSQL, with Redis-backed caches and Prometheus metrics.
 
+Deployment status, required configuration, database constraints, and known baseline issues are summarized in [HANDOFF.md](HANDOFF.md).
+
 ## Runtime contract
 
 The runtime starts exactly six generic event handlers. Checkpoint names are stable public identifiers; implementation versions describe the selected contract ABI, not separate runtime streams.
