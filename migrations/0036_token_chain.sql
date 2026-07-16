@@ -1,0 +1,16 @@
+BEGIN;
+
+ALTER TABLE token
+    ADD COLUMN IF NOT EXISTS chain VARCHAR;
+
+UPDATE token
+SET chain = 'MON'
+WHERE chain IS NULL;
+
+ALTER TABLE token
+    ALTER COLUMN chain SET DEFAULT 'MON';
+
+ALTER TABLE token
+    ALTER COLUMN chain SET NOT NULL;
+
+COMMIT;

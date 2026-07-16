@@ -1,0 +1,25 @@
+/target
+*.txt
+*.redb
+.env
+.env.backup
+.env.*
+*.csv
+/keystore
+local_keystore/
+dump/
+
+railway/
+.DS_Store
+
+
+
+key_value
+key_value
+
+*.shCLAUDE.md
+CLAUDE.md
+
+# Local agent / scheduler scratch
+.claude/scheduled_tasks.lock
+.context/

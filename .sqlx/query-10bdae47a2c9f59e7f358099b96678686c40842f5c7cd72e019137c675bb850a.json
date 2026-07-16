@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT name, symbol, description, image_url, website, twitter, telegram, is_nsfw\n            FROM token_metadata\n            WHERE metadata_url = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "symbol",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "image_url",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "website",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "twitter",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "telegram",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_nsfw",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "10bdae47a2c9f59e7f358099b96678686c40842f5c7cd72e019137c675bb850a"
+}

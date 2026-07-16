@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    INSERT INTO account (account_id, nickname, bio, image_uri, follower_count, following_count)\n                    VALUES ($1, $2, '', $3, 0, 0)\n                    ON CONFLICT (account_id) DO NOTHING\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "01da7f238c8182a96978b786b16d8e3985a7618041701b3c9506eba35ab89562"
+}
