@@ -41,7 +41,7 @@ CREATE INDEX IF NOT EXISTS idx_v2_lp_allocate_token ON v2_lp_allocate_history (t
 CREATE TABLE IF NOT EXISTS v2_fee_collect_history (
     token VARCHAR(42) NOT NULL,
     pair VARCHAR(42) NOT NULL,
-    quote_id VARCHAR(42) NOT NULL DEFAULT '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A',
+    quote_id VARCHAR(42) NOT NULL DEFAULT '0x4200000000000000000000000000000000000006',
     amount NUMERIC NOT NULL, -- quote raw (wei): FeeCollector.Collect.amount uint256 (fees denominated in quote_id)
     transaction_hash VARCHAR NOT NULL,
     block_number BIGINT NOT NULL,
@@ -57,7 +57,7 @@ CREATE INDEX IF NOT EXISTS idx_v2_fee_collect_pair ON v2_fee_collect_history (pa
 CREATE TABLE IF NOT EXISTS v2_fee_settle_history (
     token VARCHAR(42) NOT NULL,
     pair VARCHAR(42) NOT NULL,
-    quote_id VARCHAR(42) NOT NULL DEFAULT '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A',
+    quote_id VARCHAR(42) NOT NULL DEFAULT '0x4200000000000000000000000000000000000006',
     total_fee NUMERIC NOT NULL, -- quote raw (wei): FeeCollector.Settle.totalFee uint256 (fees denominated in quote_id)
     creator_fee NUMERIC NOT NULL, -- quote raw (wei): FeeCollector.Settle.creatorFee uint256 (fees denominated in quote_id)
     transaction_hash VARCHAR NOT NULL,
@@ -74,7 +74,7 @@ CREATE INDEX IF NOT EXISTS idx_v2_fee_settle_pair ON v2_fee_settle_history (pair
 CREATE TABLE IF NOT EXISTS v2_creator_fee_distribution (
     event_type VARCHAR NOT NULL,
     token VARCHAR(42),
-    quote_id VARCHAR(42) NOT NULL DEFAULT '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A',
+    quote_id VARCHAR(42) NOT NULL DEFAULT '0x4200000000000000000000000000000000000006',
     vault VARCHAR(42),
     amount NUMERIC NOT NULL, -- quote raw (wei): CreatorFeeProcessor.Distribute.amount uint256 (denominated in quote_id; usd_enrich.rs divides by quote decimals)
     usd_value NUMERIC NOT NULL DEFAULT 0, -- USD (human): amount/10^quote_decimals * quote USD price (usd_enrich.rs)
@@ -98,7 +98,7 @@ CREATE INDEX IF NOT EXISTS idx_v2_creator_fee_dist_token ON v2_creator_fee_distr
 CREATE TABLE IF NOT EXISTS v2_fee_to_claim_history (
     token VARCHAR(42) NOT NULL,
     pair VARCHAR(42) NOT NULL,
-    quote_id VARCHAR(42) NOT NULL DEFAULT '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A',
+    quote_id VARCHAR(42) NOT NULL DEFAULT '0x4200000000000000000000000000000000000006',
     quote_in NUMERIC NOT NULL, -- quote raw (wei): FeeTo.Claimed.quoteIn uint256
     quote_out NUMERIC NOT NULL, -- quote raw (wei): FeeTo.Claimed.quoteOut uint256 (excess routed to feeReceiver)
     transaction_hash VARCHAR NOT NULL,

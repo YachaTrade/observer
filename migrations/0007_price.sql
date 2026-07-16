@@ -1,9 +1,9 @@
 -- Price table: multi-quote aware.
 -- Supports multiple quote tokens (WMON, USDC, etc.) via a composite
 -- primary key (quote_id, block_number). The default quote_id is the
--- mainnet WMON address, matching the legacy V1 single-quote behavior.
+-- GIWA WETH predeploy address, matching the legacy V1 single-quote behavior.
 CREATE TABLE IF NOT EXISTS price (
-    quote_id VARCHAR(42) NOT NULL DEFAULT '0x3bd359c1119da7da1d913d1c4d2b7c461115433a',
+    quote_id VARCHAR(42) NOT NULL DEFAULT '0x4200000000000000000000000000000000000006',
     block_number BIGINT NOT NULL,
     price NUMERIC NOT NULL, -- USD per quote: Pyth oracle USD price of quote_id at this block
 

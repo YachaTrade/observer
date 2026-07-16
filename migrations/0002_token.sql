@@ -180,7 +180,7 @@ CREATE TABLE IF NOT EXISTS market (
     ath_price NUMERIC(15,10) NOT NULL DEFAULT 0, --USD; USD per token (ath_price_quote * quote USD price)
     ath_price_quote NUMERIC(15,10) NOT NULL DEFAULT 0, --Quote; quote per token (all-time-high in quote terms)
     price NUMERIC(15,10) NOT NULL, -- quote per token: virtual_quote_reserve / virtual_token_reserve (NOT USD)
-    quote_id VARCHAR(42) NOT NULL DEFAULT '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A',
+    quote_id VARCHAR(42) NOT NULL DEFAULT '0x4200000000000000000000000000000000000006',
     latest_trade_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL,
     PRIMARY KEY (token_id)
