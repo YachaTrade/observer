@@ -4,6 +4,7 @@
 .env
 .env.backup
 .env.*
+!.env.example
 *.csv
 /keystore
 local_keystore/
