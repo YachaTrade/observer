@@ -31,12 +31,12 @@ fn bd(s: &str) -> BigDecimal {
 
 #[test]
 fn parse_current_extracts_price_and_confidence_keyed_by_coin_ref() {
-    // Real DefiLlama /prices/current shape (monad mainnet LV).
-    let body = r#"{"coins":{"monad:0x1001fF13bf368Aa4fa85F21043648079F00E1001":{"decimals":18,"symbol":"LV","price":0.051648,"timestamp":1781510344,"confidence":0.99}}}"#;
+    // Real DefiLlama /prices/current shape (ethereum-slug LV example).
+    let body = r#"{"coins":{"ethereum:0x1001fF13bf368Aa4fa85F21043648079F00E1001":{"decimals":18,"symbol":"LV","price":0.051648,"timestamp":1781510344,"confidence":0.99}}}"#;
     let parsed = parse_current(body).expect("valid body parses");
 
     let pt: &PriceUsdPoint = parsed
-        .get("monad:0x1001fF13bf368Aa4fa85F21043648079F00E1001")
+        .get("ethereum:0x1001fF13bf368Aa4fa85F21043648079F00E1001")
         .expect("entry keyed by the DefiLlama coin id (preserves EIP-55 casing)");
     assert_eq!(pt.price, bd("0.051648"));
     assert_eq!(pt.confidence, Some(bd("0.99")));
@@ -53,9 +53,9 @@ fn parse_current_empty_coins_yields_empty_map() {
 
 #[test]
 fn parse_current_missing_confidence_is_none() {
-    let body = r#"{"coins":{"monad:0xabc":{"price":1.0,"timestamp":1}}}"#;
+    let body = r#"{"coins":{"ethereum:0xabc":{"price":1.0,"timestamp":1}}}"#;
     let parsed = parse_current(body).expect("parses");
-    let pt = parsed.get("monad:0xabc").expect("entry present");
+    let pt = parsed.get("ethereum:0xabc").expect("entry present");
     assert_eq!(pt.price, bd("1.0"));
     assert_eq!(
         pt.confidence, None,
@@ -66,12 +66,13 @@ fn parse_current_missing_confidence_is_none() {
 // ── coin_ref (EIP-55 preserved, no lowercasing) ─────────────────────────
 
 #[test]
-fn coin_ref_builds_monad_prefixed_preserving_case() {
+fn coin_ref_builds_slug_prefixed_preserving_case() {
+    // DEFILLAMA_CHAIN_SLUG 미설정 → 기본 "ethereum".
     let id = "0x1001fF13bf368Aa4fa85F21043648079F00E1001";
     assert_eq!(
         coin_ref(id),
-        format!("monad:{id}"),
-        "monad:{{token_id}} with original EIP-55 casing (no .to_lowercase())"
+        format!("ethereum:{id}"),
+        "{{slug}}:{{token_id}} with original EIP-55 casing (no .to_lowercase())"
     );
 }
 

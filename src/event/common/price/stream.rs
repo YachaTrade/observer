@@ -78,15 +78,15 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
                 }
             };
 
-            // Block-modulo-25 bucketing — every 25 blocks (~10 s of chain on
-            // Monad) shares a single Pyth fetch. Block-modulo (vs the
-            // previous 10s timestamp-modulo) is fully deterministic
-            // regardless of Monad block-time variance (0.3–0.5 s) and
-            // matches websocket-server's BUCKET_BLOCK_INTERVAL exactly, so
-            // both services always query Pyth with the timestamp of the
-            // SAME bucket block. The price stored in observer's `price`
-            // table and the price cached in websocket-server's in-memory
-            // map never diverge for blocks that share a bucket.
+            // Block-modulo-25 bucketing — every 25 blocks shares a single
+            // Pyth fetch. Block-modulo (vs the previous 10s
+            // timestamp-modulo) is fully deterministic regardless of the
+            // chain's block-time variance and matches websocket-server's
+            // BUCKET_BLOCK_INTERVAL exactly, so both services always query
+            // Pyth with the timestamp of the SAME bucket block. The price
+            // stored in observer's `price` table and the price cached in
+            // websocket-server's in-memory map never diverge for blocks
+            // that share a bucket.
             const BUCKET_BLOCK_INTERVAL: u64 = 25;
             let bucket_block = block_number - (block_number % BUCKET_BLOCK_INTERVAL);
             timestamp_to_blocks
