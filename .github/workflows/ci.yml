@@ -70,14 +70,10 @@ jobs:
         env:
           DATABASE_URL: "postgres://nadsadmin:nadsadmin@localhost:5432/pump"
           REDIS_URL: "redis://localhost:6379"
-          START_BLOCK: "3800000"
-          END_BLOCK: "99999999999"
+          START_BLOCK: "0"
           BLOCK_BATCH_SIZE: "50"
           BLOCK_INTERVAL: "100"
-          BONDING_CURVE_FACTORY: "0x60216FB3285595F4643f9f7cddAB842E799BD642"
-          KEYSTORE_PASSWORD: "nadsadmin"
-          KEY_VALUE_DATABASE_DIR: "./key_value"
-          MAIN_RPC_URL: "http://monad-devnet-full.bharvest.io:8080"
+          MAIN_RPC_URL: "https://sepolia-rpc.giwa.io"
 
       - name: Build
         run: cargo build --verbose

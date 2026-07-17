@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# RPC URL 설정
-RPC_URL="http://64.31.48.109:8080"
+# GIWA RPC (RPC_URL env로 재정의 가능)
+RPC_URL="${RPC_URL:-https://sepolia-rpc.giwa.io}"
 
 # Transfer 이벤트 해시
 TRANSFER_TOPIC="0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"

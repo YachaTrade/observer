@@ -1,7 +1,7 @@
 -- 0028_quote_token_is_native.sql
 --
--- Add an `is_native` flag to `quote_token` so the indexer can treat WMON and
--- 1:1 MON-pegged wrappers (LVMON, future variants) as the same "native" token
+-- Add an `is_native` flag to `quote_token` so the indexer can treat WETH and
+-- 1:1 native-pegged wrappers as the same "native" token
 -- when propagating chain-implied prices into `token_price_cache`.
 --
 -- Currently the cache propagation logic hardcodes a single `WNATIVE_ADDRESS`
@@ -11,7 +11,7 @@
 -- the indexer reads "every quote_token where is_native = true" at startup
 -- and treats all of them as native-equivalent.
 --
--- DEFAULT TRUE: current quote_token only holds MON-pegged rows (MON/WMON/LVMON),
+-- DEFAULT TRUE: current quote_token only holds the native-pegged WETH row,
 -- so backfilling existing data to TRUE is the desired state and avoids a
 -- separate UPDATE. Future non-native quotes (USDC, USDT, ...) must INSERT with
 -- an explicit `is_native = FALSE`.

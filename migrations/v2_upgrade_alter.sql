@@ -39,12 +39,11 @@ ALTER TABLE market DROP CONSTRAINT IF EXISTS market_market_type_check;
 ALTER TABLE market ADD CONSTRAINT market_market_type_check
     CHECK (market_type IN ('CURVE', 'DEX', 'V2_CURVE', 'V2_DEX'));
 
--- Add quote_id column. The DEFAULT must match the WMON address for the
--- target environment. The value below is TESTNET WMON -- override for
--- mainnet deployments before running.
+-- Add quote_id column. The DEFAULT must match the WETH address for the
+-- target environment (GIWA predeploy below).
 ALTER TABLE market
     ADD COLUMN IF NOT EXISTS quote_id VARCHAR(42) NOT NULL
-        DEFAULT '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A';
+        DEFAULT '0x4200000000000000000000000000000000000006';
 
 DO $$
 BEGIN
@@ -256,12 +255,12 @@ $$ LANGUAGE plpgsql;
 -- 9. price: add quote_id + swap PK (was migrations/0018_unify_price_table.sql)
 -- ----------------------------------------------------------------------
 -- Extends the `price` table to support multiple quote tokens. The DEFAULT
--- backfills legacy rows with the mainnet WMON address (metadata-only on
--- Postgres >= 11). The PK swap is required so WMON and non-WMON quotes
+-- backfills legacy rows with the GIWA WETH predeploy address (metadata-only on
+-- Postgres >= 11). The PK swap is required so WETH and non-WETH quotes
 -- can coexist at the same block number.
 ALTER TABLE price
     ADD COLUMN IF NOT EXISTS quote_id VARCHAR(42) NOT NULL
-        DEFAULT '0x3bd359c1119da7da1d913d1c4d2b7c461115433a';
+        DEFAULT '0x4200000000000000000000000000000000000006';
 
 -- Only swap the PK if it's still single-column (idempotent on re-run).
 DO $$
@@ -419,17 +418,6 @@ UPDATE quote_token
 SET pyth_feed_id = '0x31491744e2dbf6df7fcf4ac0820d18a609b49076d45066d3568424e62f686cd1'
 WHERE quote_id = '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A'
   AND pyth_feed_id = '';
-
--- Seed LVMON quote token (idempotent — safe to re-run).
-INSERT INTO quote_token (quote_id, name, symbol, decimals, pyth_feed_id, image_uri)
-VALUES (
-    '0xBe3fa50514D9617ce645a02B34F595541AF02b6b',
-    'LeverUpMon',
-    'LVMON',
-    18,
-    '0x31491744e2dbf6df7fcf4ac0820d18a609b49076d45066d3568424e62f686cd1',
-    'https://storage.nadapp.net/quote/lvmon.webp'
-) ON CONFLICT (quote_id) DO NOTHING;
 
 -- ----------------------------------------------------------------------
 -- 11b. quote_token: is_native flag (mirrors 0028_quote_token_is_native.sql)
