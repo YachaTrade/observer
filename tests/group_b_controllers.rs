@@ -71,7 +71,7 @@ async fn token_batch_insert_tokens_and_markets_happy_path() -> Result<()> {
     let db = setup_test_db().await?;
 
     call_batch_insert_tokens_and_markets(
-        &db.pool, TOKEN, "MyCoin", "MC", CREATOR, "CURVE",
+        &db.pool, TOKEN, "MyCoin", "MC", CREATOR, "NADFUN",
         "1000", // virtual_native
         "500",  // virtual_token
         100, 1_700_000_000, "0xtx1", 0, 0,
@@ -99,7 +99,7 @@ async fn token_batch_insert_tokens_and_markets_happy_path() -> Result<()> {
     let m = get_market_row(&db.pool, TOKEN).await?;
     assert!(m.is_some(), "market row must exist");
     let (mtype, price, _, _, rq, rt, _) = m.unwrap();
-    assert_eq!(mtype, "CURVE");
+    assert_eq!(mtype, "NADFUN");
     assert_eq!(price, "2.0000000000");
     assert_eq!(rq, "1000");
     assert_eq!(rt, "500");
@@ -119,13 +119,13 @@ async fn token_batch_insert_duplicate_no_op() -> Result<()> {
     let db = setup_test_db().await?;
 
     call_batch_insert_tokens_and_markets(
-        &db.pool, TOKEN, "MyCoin", "MC", CREATOR, "CURVE",
+        &db.pool, TOKEN, "MyCoin", "MC", CREATOR, "NADFUN",
         "1000", "500", 100, 1_700_000_000, "0xtx1", 0, 0,
     )
     .await?;
     // Same token_id, different tx
     call_batch_insert_tokens_and_markets(
-        &db.pool, TOKEN, "MyCoin2", "MC2", CREATOR, "CURVE",
+        &db.pool, TOKEN, "MyCoin2", "MC2", CREATOR, "NADFUN",
         "2000", "1000", 101, 1_700_000_001, "0xtx2", 0, 0,
     )
     .await?;
@@ -148,14 +148,14 @@ async fn market_curve_sync_insert() -> Result<()> {
 
     call_handle_curve_sync(
         &db.pool, TOKEN, "0.5", "800", "400", "1.5", "0.5",
-        1_700_000_000, "CURVE",
+        1_700_000_000, "NADFUN",
     )
     .await?;
 
     let m = get_market_row(&db.pool, TOKEN).await?;
     assert!(m.is_some());
     let (mtype, price, ath, ath_q, rq, rt, _) = m.unwrap();
-    assert_eq!(mtype, "CURVE");
+    assert_eq!(mtype, "NADFUN");
     assert_eq!(price, "0.5000000000");
     assert_eq!(ath, "1.5000000000");
     assert_eq!(ath_q, "0.5000000000");
@@ -173,14 +173,14 @@ async fn market_curve_sync_update() -> Result<()> {
     // Initial insert
     call_handle_curve_sync(
         &db.pool, TOKEN, "0.5", "800", "400", "1.5", "0.5",
-        1_700_000_000, "CURVE",
+        1_700_000_000, "NADFUN",
     )
     .await?;
 
     // Update with newer timestamp and higher price
     call_handle_curve_sync(
         &db.pool, TOKEN, "0.8", "900", "500", "2.4", "0.8",
-        1_700_000_001, "CURVE",
+        1_700_000_001, "NADFUN",
     )
     .await?;
 
@@ -199,14 +199,14 @@ async fn market_curve_sync_older_timestamp_keeps_price() -> Result<()> {
 
     call_handle_curve_sync(
         &db.pool, TOKEN, "0.8", "900", "500", "2.4", "0.8",
-        1_700_000_001, "CURVE",
+        1_700_000_001, "NADFUN",
     )
     .await?;
 
     // Older timestamp, higher ath_price_usd
     call_handle_curve_sync(
         &db.pool, TOKEN, "0.3", "700", "300", "3.0", "0.3",
-        1_700_000_000, "CURVE",
+        1_700_000_000, "NADFUN",
     )
     .await?;
 
@@ -221,7 +221,7 @@ async fn market_curve_sync_older_timestamp_keeps_price() -> Result<()> {
 async fn market_dex_sync_update() -> Result<()> {
     let db = setup_test_db().await?;
     insert_token(&db.pool, TOKEN, CREATOR).await?;
-    insert_market(&db.pool, TOKEN, "DEX").await?;
+    insert_market(&db.pool, TOKEN, "UNISWAPV3").await?;
 
     call_handle_dex_sync(
         &db.pool, TOKEN, "1.5", "2000", "1000", "4.5", "1.5",
@@ -242,19 +242,19 @@ async fn market_dex_sync_update() -> Result<()> {
 async fn market_batch_handle_graduates() -> Result<()> {
     let db = setup_test_db().await?;
     insert_token(&db.pool, TOKEN, CREATOR).await?;
-    insert_market(&db.pool, TOKEN, "CURVE").await?;
+    insert_market(&db.pool, TOKEN, "NADFUN").await?;
 
     let count = call_batch_handle_graduates(
         &db.pool,
         &[(TOKEN, POOL_ID)],
-        "DEX",
+        "UNISWAPV3",
     )
     .await?;
 
     assert_eq!(count, 1);
     assert!(get_is_graduated(&db.pool, TOKEN).await?);
     let m = get_market_row(&db.pool, TOKEN).await?.unwrap();
-    assert_eq!(m.0, "DEX");
+    assert_eq!(m.0, "UNISWAPV3");
     assert_eq!(m.6, Some(POOL_ID.to_string()));
     Ok(())
 }
