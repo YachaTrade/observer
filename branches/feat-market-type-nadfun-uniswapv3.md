@@ -16,4 +16,5 @@
 
 ## Outcome
 
-- (머지 시 작성)
+- 2026-07-19 `main`에 로컬 merge (no-squash). 핵심 커밋 `d296797`. 검증: 전체 스위트 통과(무관 기존 결함 5건 제외), fresh PG에서 NADFUN/UNISWAPV3 CHECK 동작 확인. 통합 migration `giwa/migrations e3f787a` 동기화.
+- 후속: giwa/api-server·giwa/websocket-server 다운스트림 rename 별도 진행.
