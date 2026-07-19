@@ -100,7 +100,7 @@ pub struct CurveSyncData {
     pub reserve_token: BigDecimal,
     pub reserve_quote: BigDecimal,
     pub block_timestamp: i64,
-    pub market_type: String, // "CURVE" or "DEX"
+    pub market_type: String, // "NADFUN" or "UNISWAPV3"
 }
 
 /// v1/v2 공용 dex sync 데이터
@@ -144,7 +144,7 @@ impl MarketController {
                     .bind(ath_price_usd) //$5 - ath_price (USD)
                     .bind(ath_price_quote) //$6 - ath_price_quote
                     .bind(sync.block_timestamp) //$7 - block_timestamp
-                    .bind(&sync.market_type) //$8 - market_type (CURVE or DEX)
+                    .bind(&sync.market_type) //$8 - market_type (NADFUN or UNISWAPV3)
                     .execute(&self.db.pool)
                     .await
             }) {
@@ -228,7 +228,7 @@ impl MarketController {
     }
 
     // Batch handle Graduates
-    // graduated_market_type: "DEX"
+    // graduated_market_type: "UNISWAPV3"
     pub async fn batch_handle_graduates(
         &self,
         graduates: &[(String, String)],
