@@ -84,7 +84,7 @@ pub struct TokenBatchData {
     pub image_uri: String,
     pub is_nsfw: bool,
     pub version: String,
-    pub market_type: String, // "CURVE" or "DEX"
+    pub market_type: String, // "NADFUN" or "UNISWAPV3"
     pub quote_id: String, // quote token address (default: WMON)
     pub virtual_native: String,
     pub virtual_token: String,
