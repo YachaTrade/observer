@@ -2,7 +2,8 @@
 -- events: BondingCurve, LPManager, FeeCollector, CreatorFeeProcessor,
 -- BurnVault, GiftVault, LPVault, CreatorFeeVault.
 --
--- All quote_id DEFAULTs are TESTNET WMON -- override for mainnet.
+-- All quote_id DEFAULTs are the GIWA WETH predeploy (chain-agnostic
+-- OP Stack address, valid on testnet and mainnet).
 
 -- 1. V2 Sniping Penalties (BondingCurve.SnipingFeeCollected)
 CREATE TABLE IF NOT EXISTS v2_sniping_history (
