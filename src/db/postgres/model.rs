@@ -80,7 +80,7 @@ impl From<CreateCurve> for Market {
         let reserve_token = BigDecimal::from(1_000_000_000_000_000_000_000_000_000u128);
         let reserve_quote = BigDecimal::from(0u128);
 
-        let market_type = "CURVE".to_string();
+        let market_type = "NADFUN".to_string();
         Self {
             market_type,
             token_id: (*create_curve.token).clone(),

@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS swap (
     account_id VARCHAR(42) NOT NULL,
     token_id VARCHAR(42) NOT NULL,
     -- market type
-    market_type VARCHAR NOT NULL CHECK (market_type IN ('CURVE', 'DEX', 'V2_CURVE', 'V2_DEX')),
+    market_type VARCHAR NOT NULL CHECK (market_type IN ('NADFUN', 'UNISWAPV3')),
     is_buy BOOLEAN NOT NULL,
     quote_amount NUMERIC NOT NULL,   -- UNIT: quote raw (wei) (buy=amount_in / sell=amount_out; observer src/event/v1/curve/receive.rs:431,530)
     token_amount NUMERIC NOT NULL,   -- UNIT: token raw (wei) (buy=amount_out / sell=amount_in; observer src/event/v1/curve/receive.rs:432,531)
@@ -212,5 +212,3 @@ CREATE TABLE IF NOT EXISTS burn(
 );
 
 CREATE INDEX IF NOT EXISTS idx_burn_block_number_tx_index_log_index ON burn (block_number ASC, tx_index ASC, log_index ASC);
-
-
