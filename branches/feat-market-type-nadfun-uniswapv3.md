@@ -6,7 +6,13 @@
 
 ## Changes
 
-- (진행 중)
+- `d296797` feat: market_type 저장 값 rename — `CURVE`→`NADFUN`, `DEX`→`UNISWAPV3`
+  - migrations: `0002` market CHECK `('NADFUN','UNISWAPV3')` + 부분 인덱스 predicate, `0004` swap CHECK 동일
+  - src: `giwa_market_type` 매핑, curve/dex receive 리터럴, `model.rs`, cache 쿼리(`= 'UNISWAPV3'`, `IN ('UNISWAPV3','V2_DEX')`) 및 match arm
+  - tests: group_a/b 리터럴 27곳, docs: README·event-indexing 계약 문구
+- 검증: 전체 스위트 통과. 실패 5건은 전부 rename 무관 — `pool_batch_update_reserves` 3건(베이스라인 기존 결함, bind 9 vs 11), `src/cache.rs` doc-test 2건(미접촉 파일 기존 결함). `mint`/`sniping`은 병렬 플레이크로 단독 통과 확인.
+- 실행: Codex(gpt-5.6-sol medium) / 검증·커밋: orchestrator.
+- 다운스트림 후속: giwa/api-server(22곳), giwa/websocket-server(wire enum + 테스트) 별도 작업 필요.
 
 ## Outcome
 
