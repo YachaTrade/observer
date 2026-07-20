@@ -57,7 +57,7 @@ New GIWA writes use:
 
 - `token.version='V2'`
 - `token.chain='GIWA'`
-- market values `NADFUN` and `UNISWAPV3`
+- market values `CURVE` and `DEX`
 - Curve fee values `curve_buy` and `curve_sell`
 
 Existing MON rows and existing versioned database values are intentionally unchanged. The feature does not rewrite historical data.

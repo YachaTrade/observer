@@ -52,7 +52,7 @@ DEX_ROUTER_FEE_RATE=...
 
 ## Persistence contract
 
-GIWA event processing writes `token.version='V2'` and `token.chain='GIWA'`. Market values are `NADFUN` while a token trades on the bonding curve and `UNISWAPV3` after graduation or for Dex trades. Curve fee history uses `curve_buy` and `curve_sell`.
+GIWA event processing writes `token.version='V2'` and `token.chain='GIWA'`. Market values are `CURVE` while a token trades on the bonding curve and `DEX` after graduation or for Dex trades. Curve fee history uses `curve_buy` and `curve_sell`.
 
 Existing MON rows and existing versioned database values are intentionally unchanged. No historical row rewrite is part of this runtime selection.
 
@@ -60,7 +60,7 @@ Existing MON rows and existing versioned database values are intentionally uncha
 
 ### Curve
 
-Curve indexes Create, Buy, Sell, Sync, Graduate, and SnipingPenalty events from `BONDING_CURVE`. Create initializes token, market, chart, point, and fee-history data. Buy and Sell write swaps, chart volume, points, and fee history. Sync updates price and reserves. Graduate moves the market to `UNISWAPV3` and registers the pool. SnipingPenalty records its penalty history.
+Curve indexes Create, Buy, Sell, Sync, Graduate, and SnipingPenalty events from `BONDING_CURVE`. Create initializes token, market, chart, point, and fee-history data. Buy and Sell write swaps, chart volume, points, and fee history. Sync updates price and reserves. Graduate moves the market to `DEX` and registers the pool. SnipingPenalty records its penalty history.
 
 See [Curve](event/curve.md) for fields and processing detail.
 
