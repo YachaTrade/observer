@@ -660,7 +660,6 @@ pub async fn call_batch_insert_tokens_and_markets(
     let tx_indices = vec![tx_index];
     let reserve_quotes = vec![virtual_native];
     let reserve_tokens = vec![virtual_token];
-    let versions = vec!["V2"];
     let quote_ids = vec![quote_id];
 
     sqlx::query(observer::db::postgres::controller::token::BATCH_INSERT_TOKENS_AND_MARKETS_SQL)
@@ -686,9 +685,8 @@ pub async fn call_batch_insert_tokens_and_markets(
         .bind(&tx_indices)
         .bind(&reserve_quotes)
         .bind(&reserve_tokens)
-        .bind(&versions)
         .bind(&quote_ids)
-        .bind(quote_id) // $25
+        .bind(quote_id) // $24
         .execute(pool)
         .await
         .context("failed to execute BATCH_INSERT_TOKENS_AND_MARKETS_SQL")?;
