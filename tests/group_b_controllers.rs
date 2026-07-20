@@ -87,13 +87,13 @@ async fn token_batch_insert_tokens_and_markets_happy_path() -> Result<()> {
             .bind(TOKEN)
             .fetch_one(&db.pool)
             .await?;
-    assert_eq!(chain, "GIWA");
+    assert_eq!(chain, "MON");
 
     let (version,): (String,) = sqlx::query_as("SELECT version FROM token WHERE token_id = $1")
         .bind(TOKEN)
         .fetch_one(&db.pool)
         .await?;
-    assert_eq!(version, "V2");
+    assert_eq!(version, "V1");
 
     // Market row exists with correct price (1000/500 = 2.0000000000)
     let m = get_market_row(&db.pool, TOKEN).await?;

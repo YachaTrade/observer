@@ -55,8 +55,6 @@ Address values are parsed and normalized at startup. Missing or invalid required
 
 New GIWA writes use:
 
-- `token.version='V2'`
-- `token.chain='GIWA'`
 - market values `CURVE` and `DEX`
 - Curve fee values `curve_buy` and `curve_sell`
 

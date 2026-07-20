@@ -274,7 +274,6 @@ async fn process_token_events(
                     website: create.token_metadata.website.clone(),
                     image_uri: create.token_metadata.image_uri.clone(),
                     is_nsfw: create.token_metadata.is_nsfw,
-                    version: "V2".to_string(),
                     market_type: "CURVE".to_string(),
                     quote_id: (*create.quote_id).clone(),
                     virtual_native: create.virtual_quote_reserve.to_string(),

@@ -52,7 +52,7 @@ DEX_ROUTER_FEE_RATE=...
 
 ## Persistence contract
 
-GIWA event processing writes `token.version='V2'` and `token.chain='GIWA'`. Market values are `CURVE` while a token trades on the bonding curve and `DEX` after graduation or for Dex trades. Curve fee history uses `curve_buy` and `curve_sell`.
+Market values are `CURVE` while a token trades on the bonding curve and `DEX` after graduation or for Dex trades. Curve fee history uses `curve_buy` and `curve_sell`.
 
 Existing MON rows and existing versioned database values are intentionally unchanged. No historical row rewrite is part of this runtime selection.
 
