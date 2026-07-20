@@ -35,6 +35,8 @@ lazy_static! {
         normalize_required_env_address("BONDING_CURVE");
     pub static ref DEX_FACTORY_ADDRESS: String =
         normalize_required_env_address("DEX_FACTORY");
+    // GiwaRouter address. On GIWA every trade routes through GiwaRouter,
+    // which emits Buy/Sell(graduated) — the dex handler filters graduated=true.
     pub static ref DEX_ROUTER_ADDRESS: String =
         normalize_required_env_address("DEX_ROUTER");
     pub static ref LP_MANAGER_ADDRESS: String =
