@@ -10,37 +10,37 @@ use super::retry_query;
 // ==================== SQL Constants ====================
 
 pub const INSERT_VAULT_BURNS_SQL: &str = r#"
-INSERT INTO v2_vault_burns (vault_type, token_id, quote_in, token_burned, transaction_hash, block_number, created_at, log_index, tx_index, quote_id, usd_value)
+INSERT INTO vault_burns (vault_type, token_id, quote_in, token_burned, transaction_hash, block_number, created_at, log_index, tx_index, quote_id, usd_value)
 SELECT * FROM UNNEST($1::text[], $2::text[], $3::numeric[], $4::numeric[], $5::text[], $6::bigint[], $7::bigint[], $8::int[], $9::int[], $10::text[], $11::numeric[])
 ON CONFLICT (transaction_hash, tx_index, log_index) DO NOTHING
 "#;
 
 pub const INSERT_VAULT_LP_INJECTIONS_SQL: &str = r#"
-INSERT INTO v2_vault_lp_injections (token_id, quote_used, token_used, lp_burned, transaction_hash, block_number, created_at, log_index, tx_index, quote_id, usd_value)
+INSERT INTO vault_lp_injections (token_id, quote_used, token_used, lp_burned, transaction_hash, block_number, created_at, log_index, tx_index, quote_id, usd_value)
 SELECT * FROM UNNEST($1::text[], $2::numeric[], $3::numeric[], $4::numeric[], $5::text[], $6::bigint[], $7::bigint[], $8::int[], $9::int[], $10::text[], $11::numeric[])
 ON CONFLICT (transaction_hash, tx_index, log_index) DO NOTHING
 "#;
 
 pub const INSERT_CREATOR_FEE_CLAIMS_SQL: &str = r#"
-INSERT INTO v2_creator_fee_claims (event_type, token_id, creator, amount, new_balance, transaction_hash, block_number, created_at, log_index, tx_index, quote_id, usd_value)
+INSERT INTO creator_fee_claims (event_type, token_id, creator, amount, new_balance, transaction_hash, block_number, created_at, log_index, tx_index, quote_id, usd_value)
 SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::numeric[], $5::numeric[], $6::text[], $7::bigint[], $8::bigint[], $9::int[], $10::int[], $11::text[], $12::numeric[])
 ON CONFLICT (transaction_hash, tx_index, log_index) DO NOTHING
 "#;
 
 pub const INSERT_GIFTS_SQL: &str = r#"
-INSERT INTO v2_gifts (event_type, token_id, platform, platform_id, receiver, amount, new_balance, transaction_hash, block_number, created_at, log_index, tx_index, quote_id, usd_value, expires_at)
+INSERT INTO gifts (event_type, token_id, platform, platform_id, receiver, amount, new_balance, transaction_hash, block_number, created_at, log_index, tx_index, quote_id, usd_value, expires_at)
 SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::numeric[], $7::numeric[], $8::text[], $9::bigint[], $10::bigint[], $11::int[], $12::int[], $13::text[], $14::numeric[], $15::bigint[])
 ON CONFLICT (transaction_hash, tx_index, log_index) DO NOTHING
 "#;
 
 pub const INSERT_CREATOR_UPDATES_SQL: &str = r#"
-INSERT INTO v2_creator_updates (event_type, token_id, old_creator, new_creator, transaction_hash, block_number, created_at, log_index, tx_index)
+INSERT INTO creator_updates (event_type, token_id, old_creator, new_creator, transaction_hash, block_number, created_at, log_index, tx_index)
 SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::bigint[], $7::bigint[], $8::int[], $9::int[])
 ON CONFLICT (transaction_hash, tx_index, log_index) DO NOTHING
 "#;
 
 pub const INSERT_GIFT_EXPIRY_UPDATES_SQL: &str = r#"
-INSERT INTO v2_gift_expiry_updates (old_duration, new_duration, transaction_hash, block_number, created_at, log_index, tx_index)
+INSERT INTO gift_expiry_updates (old_duration, new_duration, transaction_hash, block_number, created_at, log_index, tx_index)
 SELECT * FROM UNNEST($1::numeric[], $2::numeric[], $3::text[], $4::bigint[], $5::bigint[], $6::int[], $7::int[])
 ON CONFLICT (transaction_hash, tx_index, log_index) DO NOTHING
 "#;

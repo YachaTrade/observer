@@ -40,7 +40,7 @@ pub async fn main(event_type: EventType) -> Result<()> {
 // Source of truth: the GiftVault contract itself. The indexer used to read
 // the duration from a GIFT_EXPIRY_DURATION env var, which silently drifted
 // whenever the contract owner called setExpiryDuration(). We now call the
-// contract per SETUP so the stamp on v2_gifts.expires_at always reflects
+// contract per SETUP so the stamp on gifts.expires_at always reflects
 // the on-chain value in effect at the time the gift was created — no env
 // coordination, no startup cache that goes stale mid-stream.
 //
@@ -48,7 +48,7 @@ pub async fn main(event_type: EventType) -> Result<()> {
 // low (gift creation is a deliberate user action, not high-volume swap
 // flow) so this is acceptable. If SETUP volume ever grows enough to
 // matter, swap the on-demand fetch for OnceLock + ExpiryUpdate-event-
-// driven cache refresh (we already index v2_gift_expiry_updates).
+// driven cache refresh (we already index gift_expiry_updates).
 // ===========================================================================
 
 sol! {
