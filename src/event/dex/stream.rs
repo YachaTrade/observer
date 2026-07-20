@@ -799,7 +799,10 @@ mod tests {
             };
             let decoded =
                 GiwaRouter::Buy::decode_log_data(&buy.encode_log_data()).expect("Buy decodes");
-            assert_eq!(decoded.graduated, graduated, "Buy.graduated must round-trip");
+            assert_eq!(
+                decoded.graduated, graduated,
+                "Buy.graduated must round-trip"
+            );
 
             let sell = GiwaRouter::Sell {
                 seller: account,
@@ -810,7 +813,10 @@ mod tests {
             };
             let decoded =
                 GiwaRouter::Sell::decode_log_data(&sell.encode_log_data()).expect("Sell decodes");
-            assert_eq!(decoded.graduated, graduated, "Sell.graduated must round-trip");
+            assert_eq!(
+                decoded.graduated, graduated,
+                "Sell.graduated must round-trip"
+            );
         }
     }
 
