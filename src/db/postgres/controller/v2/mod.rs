@@ -1,6 +1,12 @@
+pub mod dividend;
 pub mod sniping;
+pub mod vault;
+pub mod vault_registry;
 
+pub use dividend::*;
 pub use sniping::*;
+pub use vault::*;
+pub use vault_registry::*;
 
 use std::time::Duration;
 

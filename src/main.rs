@@ -9,7 +9,10 @@ use observer::{
         common::{price as event_price, price_usd as event_price_usd, token as event_token},
         handler::run_event_handler as event_run_event_handler,
         v1::{dex as event_dex, lp_manager as event_lp_manager},
-        v2::curve as event_v2_curve,
+        v2::{
+            curve as event_v2_curve, vault as event_v2_vault,
+            vault_registry as event_v2_vault_registry,
+        },
     },
     metrics::{run_metrics_logging, server::MetricsServer},
     sync::{EventType, stream::STREAM_MANAGER},
@@ -113,6 +116,10 @@ async fn main() -> Result<()> {
     set.spawn(event_run_event_handler::<
         event_price_usd::PriceUsdEventHandler,
     >(EventType::PriceUsd));
+    set.spawn(event_run_event_handler::<event_v2_vault::VaultEventHandler>(EventType::Vault));
+    set.spawn(event_run_event_handler::<
+        event_v2_vault_registry::VaultRegistryEventHandler,
+    >(EventType::VaultRegistry));
 
     // 모든 태스크가 완료될 때까지 대기
     while let Some(res) = set.join_next().await {

@@ -240,9 +240,16 @@ async fn parse_log(
             };
 
             let swap_token = if token0_is_mon { &token1 } else { &token0 };
+            let swap_to = recipient.to_string();
 
             let sender = cache_manager
-                .resolve_actor(&transaction_hash, &event_sender.to_string(), swap_token, is_buy)
+                .resolve_actor(
+                    &transaction_hash,
+                    &event_sender.to_string(),
+                    swap_token,
+                    is_buy,
+                    Some(&swap_to),
+                )
                 .await
                 .unwrap_or_else(|e| {
                     error!("[DEX] Failed to resolve actor for Swap: {}", e);

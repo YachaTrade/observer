@@ -286,7 +286,7 @@ async fn parse_log(
             let token = token.to_string();
 
             let sender = cache_manager
-                .resolve_actor(&transaction_hash, &buyer.to_string(), &token, true)
+                .resolve_actor(&transaction_hash, &buyer.to_string(), &token, true, None)
                 .await
                 .unwrap_or_else(|e| {
                     error!("[CURVE] Failed to resolve actor for Buy: {}", e);
@@ -322,7 +322,7 @@ async fn parse_log(
             let token = token.to_string();
 
             let sender = cache_manager
-                .resolve_actor(&transaction_hash, &seller.to_string(), &token, false)
+                .resolve_actor(&transaction_hash, &seller.to_string(), &token, false, None)
                 .await
                 .unwrap_or_else(|e| {
                     error!("[CURVE] Failed to resolve actor for Sell: {}", e);

@@ -1,4 +1,5 @@
 pub mod metadata;
+pub mod vault_metadata;
 
 use std::str::FromStr;
 
