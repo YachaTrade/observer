@@ -171,7 +171,7 @@ CREATE TABLE IF NOT EXISTS token_metadata(
 
 -- Market
 CREATE TABLE IF NOT EXISTS market (
-    market_type VARCHAR NOT NULL CHECK (market_type IN ('NADFUN', 'UNISWAPV3')),
+    market_type VARCHAR NOT NULL CHECK (market_type IN ('CURVE', 'DEX', 'V2_CURVE', 'V2_DEX')),
     token_id VARCHAR NOT NULL,
     pool_id VARCHAR NULL,
     reserve_quote NUMERIC NULL, --liquidity; quote raw (wei): raw on-chain reserve of the quote token
@@ -187,8 +187,8 @@ CREATE TABLE IF NOT EXISTS market (
 );
 
 -- Market 테이블 복합 인덱스 (observer는 쓰기 위주이므로 필요한 것만)
-CREATE INDEX IF NOT EXISTS idx_market_token_id_market_type ON market (token_id, market_type) WHERE market_type = 'UNISWAPV3';
-CREATE INDEX IF NOT EXISTS idx_market_pool_dex ON market (pool_id, market_type) WHERE market_type = 'UNISWAPV3';
+CREATE INDEX IF NOT EXISTS idx_market_token_id_market_type ON market (token_id, market_type) WHERE market_type = 'DEX';
+CREATE INDEX IF NOT EXISTS idx_market_pool_dex ON market (pool_id, market_type) WHERE market_type = 'DEX';
 
 -- API Token 모듈 최적화: 정렬 쿼리용 인덱스
 CREATE INDEX IF NOT EXISTS idx_market_price ON market (price DESC);

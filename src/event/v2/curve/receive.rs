@@ -139,8 +139,8 @@ fn find_closest_reserve(
 
 fn giwa_market_type(market_type: &MarketType) -> &'static str {
     match market_type {
-        MarketType::Curve => "NADFUN",
-        MarketType::Dex => "UNISWAPV3",
+        MarketType::Curve => "CURVE",
+        MarketType::Dex => "DEX",
     }
 }
 
@@ -275,7 +275,7 @@ async fn process_token_events(
                     image_uri: create.token_metadata.image_uri.clone(),
                     is_nsfw: create.token_metadata.is_nsfw,
                     version: "V2".to_string(),
-                    market_type: "NADFUN".to_string(),
+                    market_type: "CURVE".to_string(),
                     quote_id: (*create.quote_id).clone(),
                     virtual_native: create.virtual_quote_reserve.to_string(),
                     virtual_token: create.virtual_token_reserve.to_string(),
@@ -594,7 +594,7 @@ async fn process_token_events(
             reserve_token: (*last_sync.virtual_token_reserve).clone(),
             reserve_quote: (*last_sync.virtual_quote_reserve).clone(),
             block_timestamp: last_sync.block_timestamp as i64,
-            market_type: "NADFUN".to_string(),
+            market_type: "CURVE".to_string(),
         };
 
         if let Err(e) = market_controller.handle_curve_sync(&sync_data, &ath_price_usd, ath_price).await {
@@ -615,7 +615,7 @@ async fn process_token_events(
         );
 
         if let Err(e) = market_controller
-            .batch_handle_graduates(&graduates_data, "UNISWAPV3")
+            .batch_handle_graduates(&graduates_data, "DEX")
             .await
         {
             error!(
@@ -739,8 +739,8 @@ mod tests {
 
     #[test]
     fn giwa_curve_uses_generic_database_categories() {
-        assert_eq!(giwa_market_type(&MarketType::Curve), "NADFUN");
-        assert_eq!(giwa_market_type(&MarketType::Dex), "UNISWAPV3");
+        assert_eq!(giwa_market_type(&MarketType::Curve), "CURVE");
+        assert_eq!(giwa_market_type(&MarketType::Dex), "DEX");
         assert_eq!(giwa_curve_fee_type(true), FeeType::CurveBuy);
         assert_eq!(giwa_curve_fee_type(false), FeeType::CurveSell);
         assert_eq!(giwa_curve_fee_type(true).as_str(), "curve_buy");

@@ -497,7 +497,7 @@ impl CacheManager {
 
         while retry_count < max_retries {
             // PostgreSQL 쿼리 실행
-            let query = r#"SELECT pool_id FROM market WHERE token_id = $1 AND market_type = 'UNISWAPV3'"#;
+            let query = r#"SELECT pool_id FROM market WHERE token_id = $1 AND market_type = 'DEX'"#;
             match sqlx::query(query)
                 .bind(token)
                 .fetch_optional(&self.postgres.pool)
@@ -577,7 +577,7 @@ impl CacheManager {
         let backoff_base = 500;
 
         while retry_count < max_retries {
-            let query = r#"SELECT EXISTS(SELECT 1 FROM market WHERE pool_id = $1 AND market_type IN ('UNISWAPV3', 'V2_DEX')) as exists"#;
+            let query = r#"SELECT EXISTS(SELECT 1 FROM market WHERE pool_id = $1 AND market_type IN ('DEX', 'V2_DEX')) as exists"#;
             match sqlx::query(query)
                 .bind(pool)
                 .fetch_one(&self.postgres.pool)
@@ -709,7 +709,7 @@ impl CacheManager {
             // V1/V2를 market_type으로 명시 분기.
             //   - V2_DEX: PairCreated 이벤트가 pool 테이블에 (pool_id,
             //     token0, token1)을 체인 그대로 저장 → pool 룩업이 정답.
-            //   - UNISWAPV3 (V1): graduate는 market에만 (token_id, quote_id)를
+            //   - DEX (V1): graduate는 market에만 (token_id, quote_id)를
             //     남기고 pool 테이블엔 INSERT 안 함 → market에서 가져와
             //     주소 비교로 (token0, token1) 정렬 (Uniswap V3 컨벤션
             //     address(token0) < address(token1)).
@@ -756,7 +756,7 @@ impl CacheManager {
                                 }
                             }
                         }
-                        "UNISWAPV3" => {
+                        "DEX" => {
                             // V1: market의 (token_id, quote_id)를 주소 비교로 정렬.
                             if token_id.to_lowercase() < quote_id.to_lowercase() {
                                 (token_id.clone(), quote_id.clone())
