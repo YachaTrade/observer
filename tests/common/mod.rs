@@ -2,7 +2,6 @@
 //! instance. Spawns an ephemeral container via testcontainers and applies
 //! the baseline migrations.
 
-use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -94,59 +93,44 @@ pub async fn setup_test_db() -> Result<TestDb> {
     })
 }
 
-/// Apply every `NNNN_*.sql` file in `migrations/` in numeric order, plus
-/// `v2_upgrade_*.sql` scripts, `vault.sql`, and `dividend.sql`. Skips
-/// `1000_delete.sql` (drop statements) and `0018_api_keys.sql` (requires
-/// prod-only `pgactive` extension). The v2_upgrade scripts are idempotent
-/// (IF NOT EXISTS) and create tables like `fee_config`, `pool`, `dex_token`
-/// needed by V2 controller tests. `vault.sql` creates vault event/stats
-/// tables and their triggers. `dividend.sql` creates DividendVault
-/// event/stats tables and their triggers.
-async fn apply_baseline_migrations(pool: &PgPool) -> Result<()> {
-    let migrations_dir = Path::new("migrations");
-    let mut entries: Vec<_> = std::fs::read_dir(migrations_dir)
-        .with_context(|| format!("failed to read {}", migrations_dir.display()))?
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            let name = entry.file_name().into_string().unwrap_or_default();
-            if !name.ends_with(".sql") {
-                return false;
-            }
-            let first = match name.chars().next() {
-                Some(c) => c,
-                None => return false,
-            };
-            // Baseline files are NNNN_*.sql with leading digit, excluding
-            // the 1000_delete drop script and 0018_api_keys.sql (uses the
-            // prod-only pgactive extension). Also include
-            // v2_upgrade_new_tables.sql (creates V2-specific tables),
-            // vault.sql (vault event/stats tables + triggers), and
-            // dividend.sql (DividendVault event/stats tables + triggers).
-            // Excludes
-            // v2_upgrade_alter.sql which is for upgrading existing prod DBs
-            // with old column names — fresh test DBs already have the
-            // correct schema from baseline files.
-            (first.is_ascii_digit()
-                && !name.starts_with("1000_")
-                && name != "0018_api_keys.sql")
-                || name == "v2_upgrade_new_tables.sql"
-                || name == "vault.sql"
-                || name == "dividend.sql"
-        })
-        .collect();
-    entries.sort_by_key(|e| e.file_name());
+/// Path to the GIWA deployment schema. `migrations/` is a submodule of the
+/// YachaTrade/migrations repo, whose `0001_init.sql` is the single source of
+/// truth for what a fresh GIWA database looks like. Tests apply exactly what
+/// production applies, so a schema/code mismatch fails here instead of in
+/// deployment.
+const GIWA_SCHEMA: &str = "migrations/0001_init.sql";
 
-    for entry in entries {
-        let path = entry.path();
-        let sql = std::fs::read_to_string(&path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-        sqlx::raw_sql(&sql)
-            .execute(pool)
-            .await
-            .with_context(|| format!("failed to apply migration {}", path.display()))?;
-    }
+/// Section markers inside `0001_init.sql`. The consolidated file records the
+/// upstream file each block came from as `-- >>> <name>`, which lets a test
+/// re-run one block in isolation — see [`read_schema_section`].
+const SECTION_MARKER: &str = "-- >>> ";
+
+/// Apply the GIWA deployment schema to a fresh database.
+async fn apply_baseline_migrations(pool: &PgPool) -> Result<()> {
+    let sql = std::fs::read_to_string(GIWA_SCHEMA).with_context(|| {
+        format!("failed to read {GIWA_SCHEMA} — run `git submodule update --init`")
+    })?;
+    sqlx::raw_sql(&sql)
+        .execute(pool)
+        .await
+        .with_context(|| format!("failed to apply {GIWA_SCHEMA}"))?;
 
     Ok(())
+}
+
+/// Return one `-- >>> <name>` block of the consolidated schema, for tests that
+/// re-run a single idempotent block (e.g. a backfill) and assert it reproduces
+/// what the triggers accumulated.
+pub fn read_schema_section(name: &str) -> Result<String> {
+    let sql = std::fs::read_to_string(GIWA_SCHEMA)
+        .with_context(|| format!("failed to read {GIWA_SCHEMA}"))?;
+    let header = format!("{SECTION_MARKER}{name}");
+    let start = sql
+        .find(&header)
+        .with_context(|| format!("no `{header}` section in {GIWA_SCHEMA}"))?;
+    let body = &sql[start + header.len()..];
+    let end = body.find(SECTION_MARKER).unwrap_or(body.len());
+    Ok(body[..end].to_string())
 }
 
 /// Insert a minimal `token` row with the given creator. Fills required
@@ -157,9 +141,9 @@ pub async fn insert_token(pool: &PgPool, token_id: &str, creator: &str) -> Resul
         r#"
         INSERT INTO token (
             token_id, name, symbol, image_uri, creator,
-            transaction_hash, total_supply, created_at, version
+            transaction_hash, total_supply, created_at
         )
-        VALUES ($1, 'Test Token', 'TT', 'uri', $2, 'tx_hash', 1000000::numeric, 0, 'V1')
+        VALUES ($1, 'Test Token', 'TT', 'uri', $2, 'tx_hash', 1000000::numeric, 0)
         "#,
     )
     .bind(token_id)

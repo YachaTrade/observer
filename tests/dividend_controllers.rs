@@ -512,7 +512,7 @@ async fn backfill_rebuild_matches_trigger_accumulation() -> Result<()> {
 
     // Re-run the whole idempotent migration file: backfill TRUNCATEs stats and
     // rebuilds from history. Result must equal trigger accumulation.
-    let sql = std::fs::read_to_string("migrations/dividend.sql")?;
+    let sql = common::read_schema_section("dividend.sql")?;
     sqlx::raw_sql(&sql).execute(&db.pool).await?;
 
     let after: StatsRows = sqlx::query_as(STATS_QUERY).fetch_all(&db.pool).await?;
