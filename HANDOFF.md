@@ -14,7 +14,7 @@
 | Git remote | 미설정 |
 | migration 구조 | submodule이 아닌 저장소 내 일반 디렉터리 |
 
-이 저장소는 GIWA 배포만 인덱싱하는 새 기준점이다. 런타임과 공개 체크포인트에는 V1/V2 구분이 없고, 내부 Rust 모듈과 ABI 경로에만 구현 출처가 남아 있다.
+이 저장소는 GIWA 배포만 인덱싱하는 새 기준점이다. 런타임, 공개 체크포인트, 내부 Rust 모듈, ABI 경로에는 V1/V2 구분이 없다.
 
 ## 인덱싱 범위
 
@@ -251,9 +251,9 @@ cargo run --release
 | `src/config.rs` | contract, fee, stream, metrics 설정 |
 | `src/sync/receive.rs` | receive 단계의 스트림 의존성 |
 | `src/sync/stream.rs` | 블록 범위와 stream checkpoint 정책 |
-| `src/event/v2/curve/` | 활성 Curve 구현 출처 |
-| `src/event/v1/dex/` | 활성 Dex 구현 출처 |
-| `src/event/v1/lp_manager/` | 활성 LpManager 구현 출처 |
+| `src/event/curve/` | 활성 Curve 구현 출처 |
+| `src/event/dex/` | 활성 Dex 구현 출처 |
+| `src/event/lp_manager/` | 활성 LpManager 구현 출처 |
 | `src/event/common/` | Token, Price, PriceUsd 구현 |
 | `src/db/postgres/controller/token.rs` | GIWA token 및 초기 market insert |
 | `migrations/0036_token_chain.sql` | `token.chain` backfill/default/not-null |

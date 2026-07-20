@@ -107,7 +107,7 @@ impl TokenController {
     pub async fn fetch_metadata(
         &self,
         metadata_url: &str,
-    ) -> Result<crate::types::v1::curve::TokenMetadata> {
+    ) -> Result<crate::types::legacy_curve::TokenMetadata> {
         let row = sqlx::query!(
             r#"
             SELECT name, symbol, description, image_url, website, twitter, telegram, is_nsfw
@@ -123,7 +123,7 @@ impl TokenController {
         match row {
             Some(r) => {
                 info!("✅ Metadata found in DB: {}", metadata_url);
-                Ok(crate::types::v1::curve::TokenMetadata {
+                Ok(crate::types::legacy_curve::TokenMetadata {
                     description: r.description,
                     twitter: r.twitter,
                     telegram: r.telegram,

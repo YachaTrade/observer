@@ -8,8 +8,8 @@
 //! Register-event parse failed and the DividendVault registration row + metadata
 //! were never persisted.
 
-use observer::db::postgres::controller::v2::vault_registry::UPSERT_VAULT_METADATA_SQL;
-use observer::types::v2::vault_registry::RegisteredVaultType;
+use observer::db::postgres::controller::vault_registry::UPSERT_VAULT_METADATA_SQL;
+use observer::types::vault_registry::RegisteredVaultType;
 
 #[test]
 fn from_u8_maps_dividend_variant() {

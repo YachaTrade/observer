@@ -116,7 +116,7 @@ sol! {
     #[allow(missing_docs, clippy::too_many_arguments)]
     #[sol(rpc)]
     IToken,
-    "abi/v1/IToken.json"
+    "abi/IToken.json"
 }
 
 // WMON (Wrapped Native) Deposit/Withdrawal events

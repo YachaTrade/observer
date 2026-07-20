@@ -7,7 +7,7 @@ use anyhow::{Context, Result, anyhow};
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
-use crate::types::v2::vault_registry::VaultMetadata;
+use crate::types::vault_registry::VaultMetadata;
 
 const REQUEST_TIMEOUT_SECS: u64 = 10;
 const ALLOWED_HOST: &str = "storage.nadapp.net";
@@ -43,7 +43,7 @@ fn normalize_vault_metadata_url(uri: &str) -> Result<reqwest::Url> {
 ///   - 404 short-circuits without retry.
 ///
 /// DB caching is handled upstream in
-/// [`V2VaultRegistryController::fetch_cached_metadata`], same as
+/// [`VaultRegistryController::fetch_cached_metadata`], same as
 /// `TokenController::fetch_metadata` serves tokens.
 pub async fn fetch_vault_metadata(uri: &str) -> Result<VaultMetadata> {
     let start = Instant::now();
