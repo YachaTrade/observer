@@ -21,14 +21,16 @@ enum StreamPolicy {
     CurveGated,
     TokenCurveGated,
     Price,
+    Independent,
 }
 
 fn stream_policy(event_type: EventType) -> StreamPolicy {
     match event_type {
         EventType::Curve => StreamPolicy::Curve,
-        EventType::Dex | EventType::LpManager => StreamPolicy::CurveGated,
+        EventType::Dex | EventType::LpManager | EventType::Vault => StreamPolicy::CurveGated,
         EventType::Token => StreamPolicy::TokenCurveGated,
         EventType::Price | EventType::PriceUsd => StreamPolicy::Price,
+        EventType::VaultRegistry => StreamPolicy::Independent,
     }
 }
 
@@ -63,6 +65,9 @@ impl StreamPolicy {
             StreamPolicy::Price => {
                 const PRICE_CYCLE_BLOCKS: u64 = 1_000;
                 (from_block + PRICE_CYCLE_BLOCKS).min(latest_block.saturating_sub(5))
+            }
+            StreamPolicy::Independent => {
+                (from_block + block_batch_size).min(latest_block.saturating_sub(block_offset))
             }
         }
     }
@@ -220,7 +225,7 @@ impl StreamManager {
         } else {
             0
         };
-        let block_offset = if policy == StreamPolicy::Curve {
+        let block_offset = if matches!(policy, StreamPolicy::Curve | StreamPolicy::Independent) {
             *BLOCK_OFFSET
         } else {
             0
@@ -286,6 +291,15 @@ mod tests {
     }
 
     #[test]
+    fn vault_waits_until_curve_is_ahead() {
+        let policy = stream_policy(EventType::Vault);
+
+        assert_eq!(policy, StreamPolicy::CurveGated);
+        assert!(!policy.is_ready(100, 100));
+        assert!(policy.is_ready(100, 101));
+    }
+
+    #[test]
     fn token_range_is_capped_by_the_last_curve_block() {
         let policy = stream_policy(EventType::Token);
 
@@ -324,5 +338,14 @@ mod tests {
         assert_eq!(policy, StreamPolicy::Price);
         assert_eq!(policy.to_block(100, 20, 600, 0, 0), 595);
         assert_eq!(policy.to_block(100, 20, 5_000, 0, 0), 1_100);
+    }
+
+    #[test]
+    fn vault_registry_uses_an_independent_offset_range() {
+        let policy = stream_policy(EventType::VaultRegistry);
+
+        assert_eq!(policy, StreamPolicy::Independent);
+        assert!(policy.is_ready(100, 0));
+        assert_eq!(policy.to_block(100, 20, 110, 0, 7), 103);
     }
 }

@@ -1,6 +1,6 @@
 # Event indexing guide
 
-Observer indexes six public GIWA event streams. Events within a batch are ordered by `(block_number, transaction_index, log_index)` before receive-side processing.
+Observer indexes eight public GIWA event streams. Events within a batch are ordered by `(block_number, transaction_index, log_index)` before receive-side processing.
 
 ## Active streams
 
@@ -9,6 +9,8 @@ Observer indexes six public GIWA event streams. Events within a batch are ordere
 | Curve | v2 BondingCurve ABI | `curve` |
 | Dex | v1 Capricorn DEX ABI | `dex` |
 | LpManager | v1 LPManager ABI | `lp_manager` |
+| Vault | v2 vault ABIs | `vault` |
+| VaultRegistry | v2 VaultRegistry ABI | `vault_registry` |
 | Token | common ERC-20 stream | `token` |
 | Price | common quote-price stream | `price` |
 | PriceUsd | common token-USD stream | `price_usd` |
@@ -20,14 +22,16 @@ Versioned handler names are implementation details. Runtime coordination, checkp
 ```text
 Price --------> Curve --------> Dex
                     |----------> LpManager
+                    |----------> Vault
                     |----------> Token (strict wait)
 
 PriceUsd (independent)
+VaultRegistry (independent, admin-driven)
 ```
 
-- Price and PriceUsd do not wait for another event stream.
+- Price, PriceUsd, and VaultRegistry do not wait for another event stream.
 - Curve waits for Price with a one-block dependency offset.
-- Dex and LpManager wait for Curve with a one-block dependency offset.
+- Dex, LpManager, and Vault wait for Curve with a one-block dependency offset.
 - Token strictly waits for Curve and remains behind the Curve stream.
 
 ## Deployment variables
@@ -40,6 +44,13 @@ DEX_FACTORY=0x...
 DEX_ROUTER=0x...
 LP_MANAGER=0x...
 WETH=0x4200000000000000000000000000000000000006
+# Optional vault and registry contracts
+BURN_VAULT=0x...
+LP_VAULT=0x...
+CREATOR_FEE_VAULT=0x...
+GIFT_VAULT=0x...
+DIVIDEND_VAULT=0x...
+VAULT_REGISTRY=0x...
 MAIN_RPC_URL=...
 SUB_RPC_URL_1=...
 SUB_RPC_URL_2=...
@@ -75,6 +86,18 @@ See [Dex](event/dex.md) for fields and processing detail.
 LpManager indexes allocation and collection events from `LP_MANAGER`. Collection processing reads treasury fee rates from the contract and persists the calculated creator, foundation, and community portions.
 
 See [LpManager](event/lp-manager.md) for fields and processing detail.
+
+### Vault
+
+Vault multiplexes BurnVault, LPVault, CreatorFeeVault, GiftVault, and DividendVault logs. It records burns, liquidity injections, creator-fee and gift lifecycle activity, and dividend setup, deposit, conversion, root, and claim activity after Curve state is available. Each vault address is optional; an unconfigured contract contributes no logs to the stream.
+
+See [Vault](event/v2/vault.md) and [Dividend](event/v2/dividend.md) for fields and processing detail.
+
+### VaultRegistry
+
+VaultRegistry independently indexes admin-driven Register and Deactivate events. Registration also resolves allowlisted off-chain vault metadata when available. The registry address is optional, so deployments without it continue running.
+
+See [VaultRegistry](event/v2/vault_registry.md) for fields and processing detail.
 
 ### Token
 

@@ -6,13 +6,15 @@ Deployment status, required configuration, database constraints, and known basel
 
 ## Runtime contract
 
-The runtime starts exactly six generic event handlers. Checkpoint names are stable public identifiers; implementation versions describe the selected contract ABI, not separate runtime streams.
+The runtime starts exactly eight generic event handlers. Checkpoint names are stable public identifiers; implementation versions describe the selected contract ABI, not separate runtime streams.
 
 | Event | Contract implementation | Checkpoint |
 | --- | --- | --- |
 | Curve | v2 BondingCurve ABI | `curve` |
 | Dex | v1 Capricorn DEX ABI | `dex` |
 | LpManager | v1 LPManager ABI | `lp_manager` |
+| Vault | v2 vault ABIs | `vault` |
+| VaultRegistry | v2 VaultRegistry ABI | `vault_registry` |
 | Token | common ERC-20 stream | `token` |
 | Price | common quote-price stream | `price` |
 | PriceUsd | common token-USD stream | `price_usd` |
@@ -23,9 +25,9 @@ Each handler follows the same pipeline:
 RPC logs/provider data -> Stream -> Channel -> Receive -> PostgreSQL/Redis
 ```
 
-Price and PriceUsd are independent. Curve waits for Price; Dex and LpManager wait for Curve; Token stays strictly behind Curve so token state cannot overtake token creation.
+Price, PriceUsd, and the admin-driven VaultRegistry stream are independent. Curve waits for Price; Dex, LpManager, and Vault wait for Curve with a one-block dependency offset. Token stays strictly behind Curve so token state cannot overtake token creation.
 
-Detailed event behavior is documented in [docs/event-indexing.md](docs/event-indexing.md), with public module references for [Curve](docs/event/curve.md), [Dex](docs/event/dex.md), and [LpManager](docs/event/lp-manager.md).
+Detailed event behavior is documented in [docs/event-indexing.md](docs/event-indexing.md), with public module references for [Curve](docs/event/curve.md), [Dex](docs/event/dex.md), [LpManager](docs/event/lp-manager.md), [Vault](docs/event/v2/vault.md), [Dividend](docs/event/v2/dividend.md), and [VaultRegistry](docs/event/v2/vault_registry.md).
 
 ## Deployment variables
 
@@ -37,6 +39,13 @@ DEX_FACTORY=0x...
 DEX_ROUTER=0x...
 LP_MANAGER=0x...
 WETH=0x4200000000000000000000000000000000000006
+# Optional vault and registry contracts
+BURN_VAULT=0x...
+LP_VAULT=0x...
+CREATOR_FEE_VAULT=0x...
+GIFT_VAULT=0x...
+DIVIDEND_VAULT=0x...
+VAULT_REGISTRY=0x...
 MAIN_RPC_URL=...
 SUB_RPC_URL_1=...
 SUB_RPC_URL_2=...
@@ -49,7 +58,7 @@ DEX_ROUTER_FEE_RATE=...
 
 See [.env.example](.env.example) for the full variable list.
 
-Address values are parsed and normalized at startup. Missing or invalid required addresses fail fast.
+Address values are parsed and normalized at startup. Missing or invalid required addresses fail fast. Vault and registry addresses are optional so deployments without those contracts still boot.
 
 ## Database write contract
 
