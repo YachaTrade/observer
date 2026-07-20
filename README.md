@@ -27,7 +27,7 @@ RPC logs/provider data -> Stream -> Channel -> Receive -> PostgreSQL/Redis
 
 Price, PriceUsd, and the admin-driven VaultRegistry stream are independent. Curve waits for Price; Dex, LpManager, and Vault wait for Curve with a one-block dependency offset. Token stays strictly behind Curve so token state cannot overtake token creation.
 
-Detailed event behavior is documented in [docs/event-indexing.md](docs/event-indexing.md), with public module references for [Curve](docs/event/curve.md), [Dex](docs/event/dex.md), [LpManager](docs/event/lp-manager.md), [Vault](docs/event/v2/vault.md), [Dividend](docs/event/v2/dividend.md), and [VaultRegistry](docs/event/v2/vault_registry.md).
+Detailed event behavior is documented in [docs/event-indexing.md](docs/event-indexing.md), with public module references for [Curve](docs/event/curve.md), [Dex](docs/event/dex.md), [LpManager](docs/event/lp-manager.md), [Vault](docs/event/vault.md), [Dividend](docs/event/dividend.md), and [VaultRegistry](docs/event/vault_registry.md).
 
 ## Deployment variables
 

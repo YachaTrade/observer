@@ -7,14 +7,14 @@ fn main_wires_the_selected_implementations_to_generic_events() {
         .collect();
 
     for mapping in [
-        "event_v2_curve::V2CurveEventHandler>(EventType::Curve)",
+        "event_curve::CurveEventHandler>(EventType::Curve)",
         "event_dex::DexEventHandler>(EventType::Dex)",
         "event_lp_manager::LpManagerEventHandler>(EventType::LpManager)",
         "event_token::TokenEventHandler>(EventType::Token)",
         "event_price::PriceEventHandler>(EventType::Price)",
         "event_price_usd::PriceUsdEventHandler>(EventType::PriceUsd)",
-        "event_v2_vault::VaultEventHandler>(EventType::Vault)",
-        "event_v2_vault_registry::VaultRegistryEventHandler>(EventType::VaultRegistry)",
+        "event_vault::VaultEventHandler>(EventType::Vault)",
+        "event_vault_registry::VaultRegistryEventHandler>(EventType::VaultRegistry)",
     ] {
         assert!(normalized.contains(mapping), "missing mapping: {mapping}");
     }
@@ -107,7 +107,7 @@ fn giwa_event_types_include_vault_streams() {
 
 #[test]
 fn curve_receiver_waits_for_its_dependency_before_processing_events() {
-    let receiver = include_str!("../src/event/v2/curve/receive.rs");
+    let receiver = include_str!("../src/event/curve/receive.rs");
     let normalized: String = receiver
         .chars()
         .filter(|character| !character.is_whitespace() && *character != ',')
@@ -128,7 +128,7 @@ fn curve_receiver_waits_for_its_dependency_before_processing_events() {
 
 #[test]
 fn vault_receiver_waits_for_curve_before_processing_events() {
-    let receiver = include_str!("../src/event/v2/vault/receive.rs");
+    let receiver = include_str!("../src/event/vault/receive.rs");
     let normalized: String = receiver
         .chars()
         .filter(|character| !character.is_whitespace() && *character != ',')
@@ -150,10 +150,10 @@ fn vault_receiver_waits_for_curve_before_processing_events() {
 #[test]
 fn vault_receivers_do_not_advance_after_persistence_failure() {
     for (name, receiver) in [
-        ("Vault", include_str!("../src/event/v2/vault/receive.rs")),
+        ("Vault", include_str!("../src/event/vault/receive.rs")),
         (
             "VaultRegistry",
-            include_str!("../src/event/v2/vault_registry/receive.rs"),
+            include_str!("../src/event/vault_registry/receive.rs"),
         ),
     ] {
         assert!(
@@ -170,10 +170,10 @@ fn vault_receivers_do_not_advance_after_persistence_failure() {
 #[test]
 fn vault_streams_do_not_send_partial_parse_batches() {
     for (name, stream) in [
-        ("Vault", include_str!("../src/event/v2/vault/stream.rs")),
+        ("Vault", include_str!("../src/event/vault/stream.rs")),
         (
             "VaultRegistry",
-            include_str!("../src/event/v2/vault_registry/stream.rs"),
+            include_str!("../src/event/vault_registry/stream.rs"),
         ),
     ] {
         assert!(
@@ -189,8 +189,8 @@ fn vault_streams_do_not_send_partial_parse_batches() {
 
 #[test]
 fn vault_historical_contract_reads_use_the_event_block() {
-    let vault = include_str!("../src/event/v2/vault/mod.rs");
-    let registry = include_str!("../src/event/v2/vault_registry/stream.rs");
+    let vault = include_str!("../src/event/vault/mod.rs");
+    let registry = include_str!("../src/event/vault_registry/stream.rs");
 
     assert!(
         vault.contains("fetch_expiry_duration_secs(block_number: u64)")
@@ -206,10 +206,10 @@ fn vault_historical_contract_reads_use_the_event_block() {
 #[test]
 fn vault_streams_require_canonical_log_coordinates_and_bounded_ranges() {
     for (name, stream) in [
-        ("Vault", include_str!("../src/event/v2/vault/stream.rs")),
+        ("Vault", include_str!("../src/event/vault/stream.rs")),
         (
             "VaultRegistry",
-            include_str!("../src/event/v2/vault_registry/stream.rs"),
+            include_str!("../src/event/vault_registry/stream.rs"),
         ),
     ] {
         assert!(
@@ -234,8 +234,8 @@ fn provider_block_timestamps_never_fall_back_to_wall_clock_time() {
 
 #[test]
 fn vault_enrichment_fails_closed_instead_of_persisting_guesses() {
-    let receiver = include_str!("../src/event/v2/vault/receive.rs");
-    let registry = include_str!("../src/event/v2/vault_registry/stream.rs");
+    let receiver = include_str!("../src/event/vault/receive.rs");
+    let registry = include_str!("../src/event/vault_registry/stream.rs");
 
     assert!(
         !receiver.contains("EXPIRY_DURATION_FALLBACK_SECS"),
@@ -256,11 +256,11 @@ fn vault_enrichment_fails_closed_instead_of_persisting_guesses() {
 
 #[test]
 fn curve_runtime_observability_uses_generic_names() {
-    let stream = include_str!("../src/event/v2/curve/stream.rs");
-    let receiver = include_str!("../src/event/v2/curve/receive.rs");
+    let stream = include_str!("../src/event/curve/stream.rs");
+    let receiver = include_str!("../src/event/curve/receive.rs");
 
     assert!(
-        stream.contains("V2CurveEventChannel::new(\"curve_events\")"),
+        stream.contains("CurveEventChannel::new(\"curve_events\")"),
         "active Curve channel must use the generic monitored name"
     );
 
@@ -283,7 +283,7 @@ fn curve_runtime_observability_uses_generic_names() {
 }
 
 #[test]
-fn active_token_stream_does_not_claim_removed_v2_dex_registration() {
+fn active_token_stream_does_not_claim_removed_dex_registration() {
     let token_stream = include_str!("../src/event/common/token/stream.rs");
 
     assert!(!token_stream.contains("registered by V2Dex stream"));

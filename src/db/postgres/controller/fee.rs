@@ -7,7 +7,7 @@ use tracing::{info, instrument, warn};
 
 use crate::config::DEFAULT_DELAY;
 use crate::db::postgres::PostgresDatabase;
-use crate::types::v1::dex::SetFeeProtocol;
+use crate::types::dex::SetFeeProtocol;
 use crate::types::fee::FeeHistoryEvent;
 
 /// SQL for inserting a single `set_fee_history` row.

@@ -1,11 +1,11 @@
-// Shared types
 pub mod chart;
+pub mod curve;
+pub mod dex;
+pub mod dividend;
 pub mod fee;
+pub mod legacy_curve;
+pub mod lp_manager;
 pub mod price;
 pub mod token;
-
-// V1 types
-pub mod v1;
-
-// V2 types
-pub mod v2;
+pub mod vault;
+pub mod vault_registry;
