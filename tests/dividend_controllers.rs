@@ -29,12 +29,12 @@ fn bd(s: &str) -> BigDecimal {
 async fn dividend_tables_and_triggers_exist() -> Result<()> {
     let db = setup_test_db().await?;
     for t in [
-        "v2_dividend_setups",
-        "v2_dividend_deposits",
-        "v2_dividend_conversions",
-        "v2_dividend_merkle_roots",
-        "v2_dividend_claims",
-        "v2_dividend_vault_stats",
+        "dividend_setups",
+        "dividend_deposits",
+        "dividend_conversions",
+        "dividend_merkle_roots",
+        "dividend_claims",
+        "dividend_vault_stats",
     ] {
         let (exists,): (bool,) = sqlx::query_as(
             "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)",
@@ -101,7 +101,7 @@ async fn stats_row(
         "SELECT total_deposited, total_pending_deposited, total_consumed_quote, \
          total_converted_received, pending_swap_balance, dividend_balance, \
          total_claimed, claim_count \
-         FROM v2_dividend_vault_stats WHERE source_token = $1 AND dividend_token = $2",
+         FROM dividend_vault_stats WHERE source_token = $1 AND dividend_token = $2",
     )
     .bind(source)
     .bind(dividend)
@@ -126,7 +126,7 @@ async fn setup_seeds_stats_rows() -> Result<()> {
     assert_eq!(claimed, bd("0"));
     assert_eq!(count, 0);
     let (n,): (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM v2_dividend_vault_stats WHERE source_token = $1")
+        sqlx::query_as("SELECT COUNT(*) FROM dividend_vault_stats WHERE source_token = $1")
             .bind(SOURCE)
             .fetch_one(&db.pool)
             .await?;
@@ -364,7 +364,7 @@ async fn claim_resolves_merkle_root_and_updates_stats() -> Result<()> {
         .await?;
 
     let roots: Vec<(Option<String>,)> = sqlx::query_as(
-        "SELECT merkle_root FROM v2_dividend_claims WHERE holder = $1 ORDER BY block_number",
+        "SELECT merkle_root FROM dividend_claims WHERE holder = $1 ORDER BY block_number",
     )
     .bind(HOLDER)
     .fetch_all(&db.pool)
@@ -412,7 +412,7 @@ async fn claim_resolves_merkle_root_within_same_block() -> Result<()> {
         .await?;
 
     let (root,): (Option<String>,) =
-        sqlx::query_as("SELECT merkle_root FROM v2_dividend_claims WHERE holder = $1")
+        sqlx::query_as("SELECT merkle_root FROM dividend_claims WHERE holder = $1")
             .bind(HOLDER)
             .fetch_one(&db.pool)
             .await?;
@@ -432,7 +432,7 @@ async fn claim_without_any_root_inserts_null_root() -> Result<()> {
     insert_claim1(&db.pool).await?;
 
     let (root,): (Option<String>,) =
-        sqlx::query_as("SELECT merkle_root FROM v2_dividend_claims WHERE holder = $1")
+        sqlx::query_as("SELECT merkle_root FROM dividend_claims WHERE holder = $1")
             .bind(HOLDER)
             .fetch_one(&db.pool)
             .await?;
@@ -471,7 +471,7 @@ async fn claim_zero_amount_rejected_by_check() -> Result<()> {
     let err = res.expect_err("zero-amount claim must violate CHECK (amount > 0)");
     assert_eq!(
         err.as_database_error().and_then(|e| e.constraint()),
-        Some("chk_v2_dividend_claims_amount"),
+        Some("chk_dividend_claims_amount"),
         "expected amount CHECK constraint violation, got: {err}"
     );
     Ok(())
@@ -506,7 +506,7 @@ async fn backfill_rebuild_matches_trigger_accumulation() -> Result<()> {
     const STATS_QUERY: &str = "SELECT source_token, dividend_token, total_deposited, \
          total_pending_deposited, total_consumed_quote, total_converted_received, \
          pending_swap_balance, dividend_balance, total_claimed, claim_count \
-         FROM v2_dividend_vault_stats ORDER BY source_token, dividend_token";
+         FROM dividend_vault_stats ORDER BY source_token, dividend_token";
 
     let before: StatsRows = sqlx::query_as(STATS_QUERY).fetch_all(&db.pool).await?;
 

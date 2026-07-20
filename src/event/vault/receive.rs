@@ -386,7 +386,7 @@ pub async fn process_events(
 
     // Upsert account rows for any newly-seen receivers / creators before
     // the event batches land, so downstream consumers reading
-    // v2_gift_vault_stats.receiver or v2_creator_fee_vault_stats can JOIN
+    // gift_vault_stats.receiver or creator_fee_vault_stats can JOIN
     // against `account` without missing rows.
     if !account_ids.is_empty() {
         let account_list: Vec<String> = account_ids.into_iter().collect();

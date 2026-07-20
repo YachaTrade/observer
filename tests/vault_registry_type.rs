@@ -53,7 +53,7 @@ fn from_u8_still_rejects_truly_unknown() {
 fn metadata_register_replay_preserves_a_newer_update_timestamp() {
     assert!(
         UPSERT_VAULT_METADATA_SQL
-            .contains("updated_at = GREATEST(v2_vault_metadata.updated_at, EXCLUDED.updated_at)"),
+            .contains("updated_at = GREATEST(vault_metadata.updated_at, EXCLUDED.updated_at)"),
         "replaying Register must not regress a later Deactivate timestamp"
     );
 }
@@ -63,7 +63,7 @@ fn metadata_replay_does_not_erase_successful_enrichment() {
     assert!(
         UPSERT_VAULT_METADATA_SQL.contains("CASE")
             && UPSERT_VAULT_METADATA_SQL
-                .contains("v2_vault_metadata.metadata_uri = EXCLUDED.metadata_uri"),
+                .contains("vault_metadata.metadata_uri = EXCLUDED.metadata_uri"),
         "same-URI replay without metadata must preserve successful enrichment"
     );
 }

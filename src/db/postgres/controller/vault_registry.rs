@@ -12,7 +12,7 @@ use super::retry_query;
 // ==================== SQL Constants ====================
 
 pub const INSERT_VAULT_REGISTRY_SQL: &str = r#"
-INSERT INTO v2_vault_registry (vault_id, transaction_hash, block_number, created_at, log_index, tx_index)
+INSERT INTO vault_registry (vault_id, transaction_hash, block_number, created_at, log_index, tx_index)
 SELECT * FROM UNNEST($1::text[], $2::text[], $3::bigint[], $4::bigint[], $5::int[], $6::int[])
 ON CONFLICT (transaction_hash, tx_index, log_index) DO NOTHING
 "#;
@@ -20,7 +20,7 @@ ON CONFLICT (transaction_hash, tx_index, log_index) DO NOTHING
 // Upsert metadata row on Register. The ON CONFLICT guard prevents a stale
 // replay of an older Register from overwriting a newer one.
 pub const UPSERT_VAULT_METADATA_SQL: &str = r#"
-INSERT INTO v2_vault_metadata (
+INSERT INTO vault_metadata (
     vault_id, name, creator, vault_type, active,
     metadata_uri, metadata, metadata_fetched_at,
     registered_at, updated_at
@@ -33,23 +33,23 @@ ON CONFLICT (vault_id) DO UPDATE SET
     metadata_uri = EXCLUDED.metadata_uri,
     metadata = CASE
         WHEN EXCLUDED.metadata IS NOT NULL THEN EXCLUDED.metadata
-        WHEN v2_vault_metadata.metadata_uri = EXCLUDED.metadata_uri THEN v2_vault_metadata.metadata
+        WHEN vault_metadata.metadata_uri = EXCLUDED.metadata_uri THEN vault_metadata.metadata
         ELSE NULL
     END,
     metadata_fetched_at = CASE
         WHEN EXCLUDED.metadata IS NOT NULL THEN EXCLUDED.metadata_fetched_at
-        WHEN v2_vault_metadata.metadata_uri = EXCLUDED.metadata_uri THEN v2_vault_metadata.metadata_fetched_at
+        WHEN vault_metadata.metadata_uri = EXCLUDED.metadata_uri THEN vault_metadata.metadata_fetched_at
         ELSE NULL
     END,
     registered_at = EXCLUDED.registered_at,
-    updated_at = GREATEST(v2_vault_metadata.updated_at, EXCLUDED.updated_at)
-WHERE v2_vault_metadata.registered_at <= EXCLUDED.registered_at
+    updated_at = GREATEST(vault_metadata.updated_at, EXCLUDED.updated_at)
+WHERE vault_metadata.registered_at <= EXCLUDED.registered_at
 "#;
 
 // Update `active` on Deactivate. Guarded by block order so reorg replay of
 // an older event can't undo a newer state change.
 pub const UPDATE_VAULT_ACTIVE_SQL: &str = r#"
-UPDATE v2_vault_metadata
+UPDATE vault_metadata
    SET active = $2, updated_at = $3
  WHERE vault_id = $1
    AND updated_at <= $3
@@ -153,7 +153,7 @@ impl VaultRegistryController {
         let row: Option<(Option<String>, Option<JsonValue>)> = sqlx::query_as(
             r#"
             SELECT metadata_uri, metadata
-            FROM v2_vault_metadata
+            FROM vault_metadata
             WHERE vault_id = $1
               AND metadata_uri IS NOT NULL
               AND metadata IS NOT NULL
@@ -162,7 +162,7 @@ impl VaultRegistryController {
         .bind(vault_id)
         .fetch_optional(&self.db.pool)
         .await
-        .context("query v2_vault_metadata for cached metadata")?;
+        .context("query vault_metadata for cached metadata")?;
 
         let Some((uri_opt, json_opt)) = row else {
             return Ok(None);
@@ -177,7 +177,7 @@ impl VaultRegistryController {
             Err(e) => {
                 // Corrupt row — treat as cache miss so we re-fetch.
                 tracing::warn!(
-                    "v2_vault_metadata JSONB for {} failed to deserialize: {:#}",
+                    "vault_metadata JSONB for {} failed to deserialize: {:#}",
                     vault_id,
                     e
                 );

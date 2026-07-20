@@ -5,7 +5,7 @@
 //! flow through the Vault receive path (`vault::receive::process_events`)
 //! and preserve the two behaviours that the standalone Dividend receive
 //! guaranteed:
-//!   1. Setup seeds `v2_dividend_vault_stats` rows.
+//!   1. Setup seeds `dividend_vault_stats` rows.
 //!   2. The 2-phase ordering resolves a Claim's `merkle_root` against a
 //!      MerkleRoot inserted IN THE SAME BATCH (phase 1 roots commit before
 //!      phase 2 claims), using the (block, tx_index, log_index) tuple.
@@ -94,7 +94,7 @@ async fn dividend_events_route_through_vault_receive() -> Result<()> {
 
     // 1. Setup seeded a stats row for (SOURCE, DIV_QUOTE).
     let (stats_count,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM v2_dividend_vault_stats WHERE source_token = $1 AND dividend_token = $2",
+        "SELECT COUNT(*) FROM dividend_vault_stats WHERE source_token = $1 AND dividend_token = $2",
     )
     .bind(SOURCE)
     .bind(DIV_QUOTE)
@@ -102,13 +102,13 @@ async fn dividend_events_route_through_vault_receive() -> Result<()> {
     .await?;
     assert_eq!(
         stats_count, 1,
-        "Setup routed through Vault must seed a v2_dividend_vault_stats row"
+        "Setup routed through Vault must seed a dividend_vault_stats row"
     );
 
     // 2. The Claim resolved its merkle_root against the same-batch root —
     //    proving phase-1 roots committed before phase-2 claims via the vault path.
     let (root,): (Option<String>,) =
-        sqlx::query_as("SELECT merkle_root FROM v2_dividend_claims WHERE holder = $1")
+        sqlx::query_as("SELECT merkle_root FROM dividend_claims WHERE holder = $1")
             .bind(HOLDER)
             .fetch_one(&db.pool)
             .await?;

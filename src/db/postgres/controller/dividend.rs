@@ -10,25 +10,25 @@ use super::retry_query;
 // ==================== SQL Constants ====================
 
 pub const INSERT_DIVIDEND_SETUPS_SQL: &str = r#"
-INSERT INTO v2_dividend_setups (source_token, dividend_token, ratio, min_balance, entry_index, transaction_hash, block_number, created_at, log_index, tx_index)
+INSERT INTO dividend_setups (source_token, dividend_token, ratio, min_balance, entry_index, transaction_hash, block_number, created_at, log_index, tx_index)
 SELECT * FROM UNNEST($1::text[], $2::text[], $3::int[], $4::numeric[], $5::int[], $6::text[], $7::bigint[], $8::bigint[], $9::int[], $10::int[])
 ON CONFLICT (transaction_hash, tx_index, log_index, entry_index) DO NOTHING
 "#;
 
 pub const INSERT_DIVIDEND_DEPOSITS_SQL: &str = r#"
-INSERT INTO v2_dividend_deposits (source_token, dividend_token, amount, pending, entry_index, transaction_hash, block_number, created_at, log_index, tx_index, quote_id, usd_value)
+INSERT INTO dividend_deposits (source_token, dividend_token, amount, pending, entry_index, transaction_hash, block_number, created_at, log_index, tx_index, quote_id, usd_value)
 SELECT * FROM UNNEST($1::text[], $2::text[], $3::numeric[], $4::bool[], $5::int[], $6::text[], $7::bigint[], $8::bigint[], $9::int[], $10::int[], $11::text[], $12::numeric[])
 ON CONFLICT (transaction_hash, tx_index, log_index, entry_index) DO NOTHING
 "#;
 
 pub const INSERT_DIVIDEND_CONVERSIONS_SQL: &str = r#"
-INSERT INTO v2_dividend_conversions (source_token, dividend_token, consumed_quote, received, entry_index, transaction_hash, block_number, created_at, log_index, tx_index, quote_id, usd_value)
+INSERT INTO dividend_conversions (source_token, dividend_token, consumed_quote, received, entry_index, transaction_hash, block_number, created_at, log_index, tx_index, quote_id, usd_value)
 SELECT * FROM UNNEST($1::text[], $2::text[], $3::numeric[], $4::numeric[], $5::int[], $6::text[], $7::bigint[], $8::bigint[], $9::int[], $10::int[], $11::text[], $12::numeric[])
 ON CONFLICT (transaction_hash, tx_index, log_index, entry_index) DO NOTHING
 "#;
 
 pub const INSERT_DIVIDEND_MERKLE_ROOTS_SQL: &str = r#"
-INSERT INTO v2_dividend_merkle_roots (merkle_root, transaction_hash, block_number, created_at, log_index, tx_index)
+INSERT INTO dividend_merkle_roots (merkle_root, transaction_hash, block_number, created_at, log_index, tx_index)
 SELECT * FROM UNNEST($1::text[], $2::text[], $3::bigint[], $4::bigint[], $5::int[], $6::int[])
 ON CONFLICT (transaction_hash, tx_index, log_index) DO NOTHING
 "#;
@@ -37,12 +37,12 @@ ON CONFLICT (transaction_hash, tx_index, log_index) DO NOTHING
 // claim's (block, tx, log) coordinates. Requires merkle root rows from the
 // same batch to be inserted BEFORE claims (receive.rs sequences this).
 pub const INSERT_DIVIDEND_CLAIMS_SQL: &str = r#"
-INSERT INTO v2_dividend_claims
+INSERT INTO dividend_claims
     (holder, source_token, dividend_token, amount, merkle_root, entry_index,
      transaction_hash, block_number, created_at, log_index, tx_index, usd_value)
 SELECT u.holder, u.source_token, u.dividend_token, u.amount,
        (SELECT m.merkle_root
-          FROM v2_dividend_merkle_roots m
+          FROM dividend_merkle_roots m
          WHERE (m.block_number, m.tx_index, m.log_index)
             <= (u.block_number, u.tx_index, u.log_index)
          ORDER BY m.block_number DESC, m.tx_index DESC, m.log_index DESC

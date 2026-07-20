@@ -37,7 +37,7 @@ async fn sniping_penalties_happy() -> Result<()> {
         .await?;
 
     let (sniping_fee, penalty_bps): (BigDecimal, BigDecimal) = sqlx::query_as(
-        "SELECT sniping_fee, penalty_bps FROM v2_sniping_history WHERE token_id = $1",
+        "SELECT sniping_fee, penalty_bps FROM sniping_history WHERE token_id = $1",
     )
     .bind(TOKEN)
     .fetch_one(&db.pool)
@@ -66,7 +66,7 @@ async fn sniping_penalties_duplicate_ignored() -> Result<()> {
     }
 
     let count: (i64,) =
-        sqlx::query_as("SELECT count(*) FROM v2_sniping_history WHERE token_id = $1")
+        sqlx::query_as("SELECT count(*) FROM sniping_history WHERE token_id = $1")
             .bind(TOKEN)
             .fetch_one(&db.pool)
             .await?;

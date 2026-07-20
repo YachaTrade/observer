@@ -212,7 +212,7 @@ async fn parse_log(log: Log, client: &RpcClient) -> Result<VaultRegistryEvent> {
             let vault_type = RegisteredVaultType::from_u8(vaultType)?;
 
             // Cache-first (same pattern as fetch_token_metadata): reuse
-            // metadata already stored in v2_vault_metadata to skip the
+            // metadata already stored in vault_metadata to skip the
             // eth_call + HTTP round-trip on reorg / sync replays.
             let (metadata_uri, metadata) =
                 fetch_vault_details(client, vault_addr, &vault_str, block_number).await?;
@@ -253,7 +253,7 @@ async fn parse_log(log: Log, client: &RpcClient) -> Result<VaultRegistryEvent> {
 /// Resolve vault metadata with DB-first caching (mirrors
 /// `fetch_token_metadata`'s token_metadata-table lookup).
 ///
-///   1. Cache hit in v2_vault_metadata → return it, skip eth_call + HTTP.
+///   1. Cache hit in vault_metadata → return it, skip eth_call + HTTP.
 ///   2. Cache miss → eth_call metadataURI(), then HTTP fetch the JSON.
 ///
 /// URI is returned even when the HTTP parse fails so the DB row still

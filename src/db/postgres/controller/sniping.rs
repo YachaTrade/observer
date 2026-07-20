@@ -10,7 +10,7 @@ use super::retry_query;
 // ==================== SQL Constants ====================
 
 pub const INSERT_SNIPING_PENALTIES_SQL: &str = r#"
-INSERT INTO v2_sniping_history (token_id, buyer, sniping_fee, penalty_bps, transaction_hash, block_number, created_at, log_index, tx_index)
+INSERT INTO sniping_history (token_id, buyer, sniping_fee, penalty_bps, transaction_hash, block_number, created_at, log_index, tx_index)
 SELECT * FROM UNNEST($1::text[], $2::text[], $3::numeric[], $4::numeric[], $5::text[], $6::bigint[], $7::bigint[], $8::int[], $9::int[])
 ON CONFLICT (transaction_hash, tx_index, log_index) DO NOTHING
 "#;
