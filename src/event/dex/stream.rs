@@ -32,14 +32,14 @@ use super::{DexEventChannel, receive::receive_events};
 sol! {
     #[allow(missing_docs)]
     #[sol(rpc)]
-    ICapricornCLPool,
-    "abi/ICapricornCLPool.json"
+    IUniswapV3Pool,
+    "abi/IUniswapV3Pool.json"
 }
 sol! {
     #[allow(missing_docs)]
     #[sol(rpc)]
-    IDexRouter,
-    "abi/IDexRouter.json"
+    GiwaRouter,
+    "abi/GiwaRouter.json"
 }
 
 #[instrument()]
@@ -75,12 +75,12 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
             .from_block(BlockNumberOrTag::Number(from_block))
             .to_block(BlockNumberOrTag::Number(to_block))
             .events(vec![
-                ICapricornCLPool::Swap::SIGNATURE,
-                ICapricornCLPool::Mint::SIGNATURE,
-                ICapricornCLPool::Burn::SIGNATURE,
-                ICapricornCLPool::SetFeeProtocol::SIGNATURE,
-                IDexRouter::DexRouterBuy::SIGNATURE,
-                IDexRouter::DexRouterSell::SIGNATURE,
+                IUniswapV3Pool::Swap::SIGNATURE,
+                IUniswapV3Pool::Mint::SIGNATURE,
+                IUniswapV3Pool::Burn::SIGNATURE,
+                IUniswapV3Pool::SetFeeProtocol::SIGNATURE,
+                GiwaRouter::Buy::SIGNATURE,
+                GiwaRouter::Sell::SIGNATURE,
             ]);
 
         // 6) Fetch logs.
@@ -207,7 +207,7 @@ async fn parse_log(
     let log_index = log.log_index.unwrap_or(u64::MAX); // 또는 unwrap_or(0)
     let transaction_index = log.transaction_index.unwrap_or(u64::MAX);
     match log.topic0() {
-        Some(&ICapricornCLPool::Swap::SIGNATURE_HASH) => {
+        Some(&IUniswapV3Pool::Swap::SIGNATURE_HASH) => {
             let pool = log.address().to_string();
             let is_whitelist_dex = cache_manager.check_token_pool(&pool).await?;
             if !is_whitelist_dex {
@@ -218,7 +218,7 @@ async fn parse_log(
             let (token0, token1) =
                 pool_pair.ok_or_else(|| anyhow::anyhow!("DEX pair not found"))?;
 
-            let ICapricornCLPool::Swap {
+            let IUniswapV3Pool::Swap {
                 sender: event_sender,
                 recipient,
                 amount0,
@@ -384,7 +384,7 @@ async fn parse_log(
 
             Ok(vec![sync_event, swap_event])
         }
-        Some(&ICapricornCLPool::Mint::SIGNATURE_HASH) => {
+        Some(&IUniswapV3Pool::Mint::SIGNATURE_HASH) => {
             let pool = log.address().to_string();
             let is_whitelist_dex = cache_manager.check_token_pool(&pool).await?;
             if !is_whitelist_dex {
@@ -395,7 +395,7 @@ async fn parse_log(
             let (token0, token1) =
                 pool_pair.ok_or_else(|| anyhow::anyhow!("DEX pair not found"))?;
 
-            let ICapricornCLPool::Mint {
+            let IUniswapV3Pool::Mint {
                 owner,
                 amount,
                 amount0,
@@ -424,7 +424,7 @@ async fn parse_log(
 
             // Get pool state at the specific block to calculate reserves
             let pool_contract =
-                ICapricornCLPool::new(log.address(), client.get_current_provider().await?);
+                IUniswapV3Pool::new(log.address(), client.get_current_provider().await?);
 
             // Parallel RPC calls for better performance
             let block_id = BlockId::Number(BlockNumberOrTag::Number(block_number));
@@ -434,7 +434,7 @@ async fn parse_log(
             let (slot0_result, liquidity_result) =
                 tokio::join!(slot0_call.call(), liquidity_call.call());
 
-            let ICapricornCLPool::slot0Return { sqrtPriceX96, .. } = slot0_result?;
+            let IUniswapV3Pool::slot0Return { sqrtPriceX96, .. } = slot0_result?;
 
             let liquidity = liquidity_result?;
 
@@ -481,7 +481,7 @@ async fn parse_log(
 
             Ok(vec![DexEvent::from(mint)])
         }
-        Some(&ICapricornCLPool::Burn::SIGNATURE_HASH) => {
+        Some(&IUniswapV3Pool::Burn::SIGNATURE_HASH) => {
             let pool = log.address().to_string();
             let is_whitelist_dex = cache_manager.check_token_pool(&pool).await?;
             if !is_whitelist_dex {
@@ -492,7 +492,7 @@ async fn parse_log(
             let (token0, token1) =
                 pool_pair.ok_or_else(|| anyhow::anyhow!("DEX pair not found"))?;
 
-            let ICapricornCLPool::Burn {
+            let IUniswapV3Pool::Burn {
                 owner,
                 amount,
                 amount0,
@@ -521,7 +521,7 @@ async fn parse_log(
 
             // Get pool state at the specific block to calculate reserves
             let pool_contract =
-                ICapricornCLPool::new(log.address(), client.get_current_provider().await?);
+                IUniswapV3Pool::new(log.address(), client.get_current_provider().await?);
 
             // Parallel RPC calls for better performance
             let block_id = BlockId::Number(BlockNumberOrTag::Number(block_number));
@@ -531,7 +531,7 @@ async fn parse_log(
             let (slot0_result, liquidity_result) =
                 tokio::join!(slot0_call.call(), liquidity_call.call());
 
-            let ICapricornCLPool::slot0Return { sqrtPriceX96, .. } = slot0_result?;
+            let IUniswapV3Pool::slot0Return { sqrtPriceX96, .. } = slot0_result?;
 
             let liquidity = liquidity_result?;
 
@@ -578,17 +578,24 @@ async fn parse_log(
 
             Ok(vec![DexEvent::from(burn)])
         }
-        Some(&IDexRouter::DexRouterBuy::SIGNATURE_HASH) => {
+        Some(&GiwaRouter::Buy::SIGNATURE_HASH) => {
             let address = log.address().to_string();
             if !check_dex_router(address) {
                 return Err(anyhow::anyhow!("Not a DexRouter address"));
             }
-            let IDexRouter::DexRouterBuy {
-                sender: event_sender,
+            let GiwaRouter::Buy {
+                buyer: event_sender,
                 token,
                 amountIn,
                 amountOut,
+                graduated,
             } = log.log_decode()?.inner.data;
+
+            // graduated=false 는 커브 매매 — curve 핸들러(BondingCurve.Buy)가
+            // 이미 인덱싱하므로 dex 에서는 스킵(이중 저장 방지).
+            if !graduated {
+                return Ok(vec![]);
+            }
 
             let sender = event_sender.to_string();
             let tx_sender = match cache_manager.get_tx_sender(&transaction_hash).await {
@@ -611,17 +618,22 @@ async fn parse_log(
 
             Ok(vec![DexEvent::from(buy)])
         }
-        Some(&IDexRouter::DexRouterSell::SIGNATURE_HASH) => {
+        Some(&GiwaRouter::Sell::SIGNATURE_HASH) => {
             let address = log.address().to_string();
             if !check_dex_router(address) {
                 return Err(anyhow::anyhow!("Not a DexRouter address"));
             }
-            let IDexRouter::DexRouterSell {
-                sender: event_sender,
+            let GiwaRouter::Sell {
+                seller: event_sender,
                 token,
                 amountIn,
                 amountOut,
+                graduated,
             } = log.log_decode()?.inner.data;
+
+            if !graduated {
+                return Ok(vec![]);
+            }
 
             let sender = event_sender.to_string();
             let tx_sender = match cache_manager.get_tx_sender(&transaction_hash).await {
@@ -644,7 +656,7 @@ async fn parse_log(
 
             Ok(vec![DexEvent::from(sell)])
         }
-        Some(&ICapricornCLPool::SetFeeProtocol::SIGNATURE_HASH) => {
+        Some(&IUniswapV3Pool::SetFeeProtocol::SIGNATURE_HASH) => {
             let pool = log.address().to_string();
 
             info!(
@@ -661,7 +673,7 @@ async fn parse_log(
                 return Err(anyhow::anyhow!("Not a white list dex address"));
             }
 
-            let ICapricornCLPool::SetFeeProtocol {
+            let IUniswapV3Pool::SetFeeProtocol {
                 feeProtocol0Old,
                 feeProtocol1Old,
                 feeProtocol0New,
@@ -751,6 +763,56 @@ mod tests {
     use std::str::FromStr;
 
     use super::*;
+
+    #[test]
+    fn giwa_router_and_v3_pool_signatures_resolve() {
+        // ABI 교체가 성공하면 이 심볼들이 컴파일된다. GiwaRouter.Buy/Sell,
+        // IUniswapV3Pool.Swap/Mint/Burn/SetFeeProtocol 시그니처 해시를 고정한다.
+        let _ = GiwaRouter::Buy::SIGNATURE_HASH;
+        let _ = GiwaRouter::Sell::SIGNATURE_HASH;
+        let _ = IUniswapV3Pool::Swap::SIGNATURE_HASH;
+        let _ = IUniswapV3Pool::Mint::SIGNATURE_HASH;
+        let _ = IUniswapV3Pool::Burn::SIGNATURE_HASH;
+        let _ = IUniswapV3Pool::SetFeeProtocol::SIGNATURE_HASH;
+    }
+
+    /// The dex handler filters GiwaRouter.Buy/Sell on `graduated`. This guards
+    /// the field the filter reads: encode a Buy/Sell event and confirm the
+    /// decoded `graduated` round-trips both ways. If the ABI field order or
+    /// type ever drifts, `if !graduated { skip }` would silently misclassify
+    /// curve vs dex trades — this fails first.
+    #[test]
+    fn giwa_router_buy_sell_graduated_field_round_trips() {
+        use alloy::primitives::{Address, U256};
+        use alloy::sol_types::SolEvent;
+
+        let token = Address::repeat_byte(0x11);
+        let account = Address::repeat_byte(0x22);
+
+        for graduated in [true, false] {
+            let buy = GiwaRouter::Buy {
+                buyer: account,
+                token,
+                amountIn: U256::from(1_000u64),
+                amountOut: U256::from(2_000u64),
+                graduated,
+            };
+            let decoded =
+                GiwaRouter::Buy::decode_log_data(&buy.encode_log_data()).expect("Buy decodes");
+            assert_eq!(decoded.graduated, graduated, "Buy.graduated must round-trip");
+
+            let sell = GiwaRouter::Sell {
+                seller: account,
+                token,
+                amountIn: U256::from(3_000u64),
+                amountOut: U256::from(4_000u64),
+                graduated,
+            };
+            let decoded =
+                GiwaRouter::Sell::decode_log_data(&sell.encode_log_data()).expect("Sell decodes");
+            assert_eq!(decoded.graduated, graduated, "Sell.graduated must round-trip");
+        }
+    }
 
     #[test]
     fn test_calculate_mon_token_price_normal_case() {
