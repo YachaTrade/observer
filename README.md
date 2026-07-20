@@ -11,7 +11,7 @@ The runtime starts exactly eight generic event handlers. Checkpoint names are st
 | Event | Contract implementation | Checkpoint |
 | --- | --- | --- |
 | Curve | v2 BondingCurve ABI | `curve` |
-| Dex | v1 Capricorn DEX ABI | `dex` |
+| Dex | GIWA canonical Uniswap V3 pool + GiwaRouter Buy/Sell(graduated) | `dex` |
 | LpManager | v1 LPManager ABI | `lp_manager` |
 | Vault | v2 vault ABIs | `vault` |
 | VaultRegistry | v2 VaultRegistry ABI | `vault_registry` |
