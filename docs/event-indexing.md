@@ -7,7 +7,7 @@ Observer indexes eight public GIWA event streams. Events within a batch are orde
 | Event | Contract implementation | Checkpoint |
 | --- | --- | --- |
 | Curve | v2 BondingCurve ABI | `curve` |
-| Dex | v1 Capricorn DEX ABI | `dex` |
+| Dex | GIWA canonical Uniswap V3 pool + GiwaRouter Buy/Sell(graduated) | `dex` |
 | LpManager | v1 LPManager ABI | `lp_manager` |
 | Vault | v2 vault ABIs | `vault` |
 | VaultRegistry | v2 VaultRegistry ABI | `vault_registry` |
@@ -77,7 +77,7 @@ See [Curve](event/curve.md) for fields and processing detail.
 
 ### Dex
 
-Dex indexes concentrated-liquidity pool Swap, Mint, Burn, and SetFeeProtocol events plus router buy/sell events. Only known token pools are processed. Swap parsing synthesizes reserve/price state used by receive-side swap, market, chart, point, and fee-history writes.
+Dex indexes Swap, Mint, Burn, and SetFeeProtocol events from GIWA canonical Uniswap V3 pools plus GiwaRouter Buy/Sell events where `graduated=true`. Router events with `graduated=false` remain the Curve handler's responsibility and are skipped to prevent duplicate trades. Only known token pools are processed. Swap parsing synthesizes reserve/price state used by receive-side swap, market, chart, point, and fee-history writes.
 
 See [Dex](event/dex.md) for fields and processing detail.
 
