@@ -56,9 +56,7 @@ pub trait PriceProvider: Send + Sync {
 ///   preserving the legacy testnet hardcoded value.
 /// - otherwise      → [`pyth::PythProvider`] backed by the Pyth Hermes API.
 pub fn build_provider() -> Result<Arc<dyn PriceProvider>> {
-    // `PRICE_MODE` overrides `MODE` for the quote (Pyth) provider only, so
-    // Pyth can run live while the token-USD (DefiLlama) provider stays mocked
-    // via its own `PRICE_USD_MODE`. Falls back to `MODE`, then "mainnet".
+    // `PRICE_MODE` overrides the shared `MODE`; default to mainnet.
     let mode = std::env::var("PRICE_MODE")
         .or_else(|_| std::env::var("MODE"))
         .unwrap_or_else(|_| "mainnet".to_string());

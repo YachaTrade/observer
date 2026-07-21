@@ -10,7 +10,7 @@ use common::{
     call_batch_insert_pools, call_batch_insert_tokens_and_markets, call_batch_update_pool_reserves,
     call_handle_burn, call_handle_curve_sync, call_handle_dex_sync, call_handle_lp_allocate,
     call_handle_lp_collect, call_batch_handle_graduates, count_lp_allocate, count_lp_collect,
-    count_rows_for_token, count_token_metadata, get_balances, get_is_graduated, get_market_row,
+    count_rows_for_token, count_token_metadata, get_is_graduated, get_market_row,
     get_pool_row, get_token_count, get_total_supply, insert_market, insert_token,
     insert_token_metadata, setup_test_db,
 };
@@ -593,53 +593,5 @@ async fn lp_collect_duplicate_no_op() -> Result<()> {
     .await?;
 
     assert_eq!(count_lp_collect(&db.pool, TOKEN).await?, 1);
-    Ok(())
-}
-
-/// handle_lp_collect fires trigger `update_creator_treasury_balance_from_collect`:
-/// credits c_amount to the token's creator.
-#[tokio::test]
-async fn lp_collect_triggers_creator_treasury_balance() -> Result<()> {
-    let db = setup_test_db().await?;
-    insert_token(&db.pool, TOKEN, CREATOR).await?;
-
-    call_handle_lp_collect(
-        &db.pool, TOKEN, "0", "0", "1000", "0", "0",
-        "0xtx1", 0, 0, 1_700_000_000,
-    )
-    .await?;
-
-    let balances = get_balances(&db.pool, TOKEN).await?;
-    assert_eq!(
-        balances,
-        vec![(CREATOR.to_string(), "1000".to_string())],
-        "creator_treasury_balance should be credited with c_amount"
-    );
-    Ok(())
-}
-
-/// Two collects accumulate the creator treasury balance.
-#[tokio::test]
-async fn lp_collect_accumulates_creator_treasury() -> Result<()> {
-    let db = setup_test_db().await?;
-    insert_token(&db.pool, TOKEN, CREATOR).await?;
-
-    call_handle_lp_collect(
-        &db.pool, TOKEN, "0", "0", "1000", "0", "0",
-        "0xtx1", 0, 0, 1_700_000_000,
-    )
-    .await?;
-    call_handle_lp_collect(
-        &db.pool, TOKEN, "0", "0", "500", "0", "0",
-        "0xtx2", 0, 0, 1_700_000_001,
-    )
-    .await?;
-
-    let balances = get_balances(&db.pool, TOKEN).await?;
-    assert_eq!(
-        balances,
-        vec![(CREATOR.to_string(), "1500".to_string())],
-        "two collects should sum"
-    );
     Ok(())
 }

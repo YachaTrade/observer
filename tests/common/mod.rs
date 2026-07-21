@@ -154,27 +154,6 @@ pub async fn insert_token(pool: &PgPool, token_id: &str, creator: &str) -> Resul
     Ok(())
 }
 
-/// Fetch all `creator_treasury_balance` rows for a token, ordered by
-/// account_id, with amount as a string for exact comparison.
-pub async fn get_balances(
-    pool: &PgPool,
-    token_id: &str,
-) -> Result<Vec<(String, String)>> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        r#"
-        SELECT account_id, amount::text
-        FROM creator_treasury_balance
-        WHERE token_id = $1
-        ORDER BY account_id
-        "#,
-    )
-    .bind(token_id)
-    .fetch_all(pool)
-    .await
-    .context("failed to read creator_treasury_balance rows")?;
-    Ok(rows)
-}
-
 // ============================================================================
 // Balance / balance_history helpers (Group A: balance.rs tests)
 // ============================================================================
@@ -1004,8 +983,7 @@ pub async fn call_handle_lp_allocate(
     Ok(())
 }
 
-/// Call `HANDLE_LP_COLLECT_SQL` with scalar params. Fires the
-/// `update_creator_treasury_balance_from_collect` trigger.
+/// Call `HANDLE_LP_COLLECT_SQL` with scalar params.
 #[allow(clippy::too_many_arguments)]
 pub async fn call_handle_lp_collect(
     pool: &PgPool,
