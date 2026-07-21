@@ -17,7 +17,6 @@ pub mod mint;
 pub mod pool;
 pub mod position;
 pub mod price;
-pub mod price_usd;
 pub mod sniping;
 pub mod swap;
 pub mod token;

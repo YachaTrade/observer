@@ -264,8 +264,8 @@ fn determine_vault_type(log_address: &str) -> VaultType {
     }
 }
 
-/// USD value of a dividend-token amount using quote, whitelist, then chain
-/// sources. Missing all sources returns 0 with the existing WARN.
+/// USD value of a dividend-token amount using quote, then chain sources.
+/// Missing both sources returns 0 with the existing WARN.
 async fn dividend_token_usd(
     cache: &CacheManager,
     dividend_token: &str,
@@ -275,7 +275,6 @@ async fn dividend_token_usd(
 ) -> BigDecimal {
     let decimals = cache.get_token_decimals_factor(dividend_token).await;
     let quote_usd = cache.get_quote_usd_price(dividend_token, block_num).await;
-    let whitelist_usd = cache.get_price_usd_before(dividend_token, block_num).await;
     let ph = cache
         .get_token_quote_price_history_before(dividend_token, block_timestamp)
         .await;
@@ -293,13 +292,7 @@ async fn dividend_token_usd(
         _ => None,
     };
 
-    match compose_dividend_claim_usd(
-        amount,
-        &decimals,
-        quote_usd.as_deref(),
-        whitelist_usd.as_ref(),
-        chain_ref,
-    ) {
+    match compose_dividend_claim_usd(amount, &decimals, quote_usd.as_deref(), chain_ref) {
         Some(v) => v,
         None => {
             warn!(

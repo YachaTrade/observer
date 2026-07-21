@@ -317,14 +317,14 @@ async fn parse_log(
         return (None, Vec::new());
     }
 
-    // whitelist 체크
+    // Only index balances for contracts registered in the token table.
     let token_addr_str = token_address.to_string();
-    let is_whitelist = match cache_manager.check_white_list_token(&token_addr_str).await {
+    let is_indexed_token = match cache_manager.token_exists(&token_addr_str).await {
         Ok(v) => v,
         Err(_) => return (None, Vec::new()),
     };
 
-    if !is_whitelist {
+    if !is_indexed_token {
         // NadFunPair Transfer routing (LP position tracking).
         //
         // If the address is a known DEX pool in the Redis pool cache, route

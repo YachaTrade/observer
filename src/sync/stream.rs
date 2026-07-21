@@ -29,7 +29,7 @@ fn stream_policy(event_type: EventType) -> StreamPolicy {
         EventType::Curve => StreamPolicy::Curve,
         EventType::Dex | EventType::LpManager | EventType::Vault => StreamPolicy::CurveGated,
         EventType::Token => StreamPolicy::TokenCurveGated,
-        EventType::Price | EventType::PriceUsd => StreamPolicy::Price,
+        EventType::Price => StreamPolicy::Price,
         EventType::VaultRegistry => StreamPolicy::Independent,
     }
 }
@@ -329,15 +329,6 @@ mod tests {
         let policy = stream_policy(EventType::Price);
 
         assert_eq!(policy.to_block(100, 20, 600, 0, 0), 595);
-    }
-
-    #[test]
-    fn price_usd_uses_the_price_range_policy() {
-        let policy = stream_policy(EventType::PriceUsd);
-
-        assert_eq!(policy, StreamPolicy::Price);
-        assert_eq!(policy.to_block(100, 20, 600, 0, 0), 595);
-        assert_eq!(policy.to_block(100, 20, 5_000, 0, 0), 1_100);
     }
 
     #[test]

@@ -273,13 +273,10 @@ pub fn compose_dividend_claim_usd(
     amount: &BigDecimal,
     decimals_factor: &BigDecimal,
     quote_usd: Option<&BigDecimal>,
-    whitelist_usd: Option<&BigDecimal>,
     chain: Option<(&BigDecimal, &BigDecimal)>,
 ) -> Option<BigDecimal> {
     let unit_usd = if let Some(quote_usd) = quote_usd {
         quote_usd.clone()
-    } else if let Some(whitelist_usd) = whitelist_usd {
-        whitelist_usd.clone()
     } else if let Some((quote_per_token, quote_usd)) = chain {
         quote_per_token * quote_usd
     } else {
@@ -478,7 +475,7 @@ mod tests {
     }
 
     // ---- compose_dividend_claim_usd: claim USD source priority + math ----
-    // Priority: quote > whitelist(DefiLlama) > chain(quote_per_token × quote_usd).
+    // Priority: quote > chain(quote_per_token × quote_usd).
     // All paths: usd = (amount / decimals_factor) × unit_usd. None when no source.
 
     /// Normalized equality so scale differences from division don't fail the test
@@ -491,13 +488,12 @@ mod tests {
     #[test]
     fn compose_uses_quote_usd_when_token_is_quote() {
         // amount 2e24 / 1e18 = 2e6 tokens; × quote_usd 3 = 6e6.
-        // whitelist + chain are present but quote must win.
+        // Chain is present but quote must win.
         usd_eq(
             compose_dividend_claim_usd(
                 &bd("2000000000000000000000000"),
                 &bd("1000000000000000000"),
                 Some(&bd("3")),
-                Some(&bd("999")),
                 Some((&bd("0.02"), &bd("2.5"))),
             ),
             "6000000",
@@ -505,29 +501,12 @@ mod tests {
     }
 
     #[test]
-    fn compose_falls_back_to_whitelist_when_no_quote() {
-        // amount 1e18 / 1e18 = 1 token; × whitelist usd/token 4.5 = 4.5.
-        // chain present but whitelist must win.
-        usd_eq(
-            compose_dividend_claim_usd(
-                &bd("1000000000000000000"),
-                &bd("1000000000000000000"),
-                None,
-                Some(&bd("4.5")),
-                Some((&bd("0.02"), &bd("2.5"))),
-            ),
-            "4.5",
-        );
-    }
-
-    #[test]
-    fn compose_falls_back_to_chain_when_no_quote_or_whitelist() {
+    fn compose_falls_back_to_chain_when_no_quote() {
         // amount 1e18 / 1e18 = 1 token; × (qpt 0.02 × qusd 2.5) = 0.05.
         usd_eq(
             compose_dividend_claim_usd(
                 &bd("1000000000000000000"),
                 &bd("1000000000000000000"),
-                None,
                 None,
                 Some((&bd("0.02"), &bd("2.5"))),
             ),
@@ -543,7 +522,6 @@ mod tests {
                 &bd("5000000000000000000000000"),
                 &bd("1000000000000000000"),
                 None,
-                None,
                 Some((&bd("0.001"), &bd("20"))),
             ),
             "100000",
@@ -556,7 +534,6 @@ mod tests {
             compose_dividend_claim_usd(
                 &bd("1000000000000000000"),
                 &bd("1000000000000000000"),
-                None,
                 None,
                 None,
             ),
