@@ -39,7 +39,7 @@ fn dependency_policy(event_type: EventType) -> DependencyPolicy {
             wait: DependencyWait::Strict,
             dependencies: &[(EventType::Curve, 1)],
         },
-        EventType::Price | EventType::PriceUsd | EventType::VaultRegistry => DependencyPolicy {
+        EventType::Price | EventType::VaultRegistry => DependencyPolicy {
             wait: DependencyWait::None,
             dependencies: &[],
         },
@@ -267,17 +267,6 @@ mod tests {
     fn price_is_independent() {
         assert_eq!(
             dependency_policy(EventType::Price),
-            DependencyPolicy {
-                wait: DependencyWait::None,
-                dependencies: &[],
-            }
-        );
-    }
-
-    #[test]
-    fn price_usd_is_independent() {
-        assert_eq!(
-            dependency_policy(EventType::PriceUsd),
             DependencyPolicy {
                 wait: DependencyWait::None,
                 dependencies: &[],

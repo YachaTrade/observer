@@ -1,6 +1,6 @@
 # Event indexing guide
 
-Observer indexes eight public GIWA event streams. Events within a batch are ordered by `(block_number, transaction_index, log_index)` before receive-side processing.
+Observer indexes seven public GIWA event streams. Events within a batch are ordered by `(block_number, transaction_index, log_index)` before receive-side processing.
 
 ## Active streams
 
@@ -13,7 +13,6 @@ Observer indexes eight public GIWA event streams. Events within a batch are orde
 | VaultRegistry | v2 VaultRegistry ABI | `vault_registry` |
 | Token | common ERC-20 stream | `token` |
 | Price | common quote-price stream | `price` |
-| PriceUsd | common token-USD stream | `price_usd` |
 
 Contract implementation versions only record ABI provenance. Runtime handlers, coordination, checkpoints, and operational metrics use the generic Event and Checkpoint values above.
 
@@ -25,11 +24,10 @@ Price --------> Curve --------> Dex
                     |----------> Vault
                     |----------> Token (strict wait)
 
-PriceUsd (independent)
 VaultRegistry (independent, admin-driven)
 ```
 
-- Price, PriceUsd, and VaultRegistry do not wait for another event stream.
+- Price and VaultRegistry do not wait for another event stream.
 - Curve waits for Price with a one-block dependency offset.
 - Dex, LpManager, and Vault wait for Curve with a one-block dependency offset.
 - Token strictly waits for Curve and remains behind the Curve stream.
@@ -101,12 +99,8 @@ See [VaultRegistry](event/vault_registry.md) for fields and processing detail.
 
 ### Token
 
-Token consumes common ERC-20 transfer/burn activity for whitelisted tokens, excludes configured system addresses, and updates balance/position history after Curve has created the token state.
+Token consumes common ERC-20 transfer/burn activity for contracts present in the `token` table, excludes configured system addresses, and updates balance/position history after Curve has created the token state.
 
 ### Price
 
 Price loads quote-token configuration from the database, obtains quote prices, and maintains block-addressable price data used by Curve and Dex USD calculations.
-
-### PriceUsd
-
-PriceUsd obtains token-USD prices through the common provider, groups them into deterministic block buckets, and persists the token price history independently of the contract event streams.

@@ -12,7 +12,6 @@ fn main_wires_the_selected_implementations_to_generic_events() {
         "event_lp_manager::LpManagerEventHandler>(EventType::LpManager)",
         "event_token::TokenEventHandler>(EventType::Token)",
         "event_price::PriceEventHandler>(EventType::Price)",
-        "event_price_usd::PriceUsdEventHandler>(EventType::PriceUsd)",
         "event_vault::VaultEventHandler>(EventType::Vault)",
         "event_vault_registry::VaultRegistryEventHandler>(EventType::VaultRegistry)",
     ] {
@@ -23,12 +22,27 @@ fn main_wires_the_selected_implementations_to_generic_events() {
         normalized
             .matches("set.spawn(event_run_event_handler::<")
             .count(),
-        8
+        7
     );
+    assert!(!normalized.contains("PriceUsd"));
     assert!(!normalized.contains("EventType::V2"));
     assert!(!normalized.contains("EventType::Reward"));
     assert!(!normalized.contains("EventType::Creator"));
     assert!(!normalized.contains("EventType::Distributor"));
+}
+
+#[test]
+fn token_stream_filters_balances_by_token_table_membership() {
+    let stream = include_str!("../src/event/common/token/stream.rs");
+
+    assert!(
+        stream.contains("cache_manager.token_exists(&token_addr_str).await"),
+        "token Transfer filtering must use token-table membership"
+    );
+    assert!(
+        !stream.contains("check_white_list_token"),
+        "token Transfer filtering must not use the removed whitelist cache"
+    );
 }
 
 #[test]
