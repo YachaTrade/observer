@@ -1139,7 +1139,7 @@ pub async fn count_lp_collect(pool: &PgPool, token_id: &str) -> Result<i64> {
 }
 
 // ============================================================================
-// Group C helpers: fee, reward, distributor, point
+// Group C helpers: fee
 // ============================================================================
 
 /// Call `HANDLE_SET_FEE_PROTOCOL_SQL` with scalar params.
@@ -1298,95 +1298,6 @@ pub async fn get_fee_aggregate(
     .await
     .context("failed to read fee aggregate row")?;
     Ok(row)
-}
-
-/// Call `BATCH_INSERT_POINTS_SQL` with array params.
-#[allow(clippy::too_many_arguments)]
-pub async fn call_batch_insert_points(
-    pool: &PgPool,
-    account_ids: &[&str],
-    point_types: &[&str],
-    values: &[bigdecimal::BigDecimal],
-    transaction_hashes: &[&str],
-    tx_indexes: &[i32],
-    log_indexes: &[i32],
-    created_ats: &[i64],
-) -> Result<()> {
-    sqlx::query(observer::db::postgres::controller::point::BATCH_INSERT_POINTS_SQL)
-        .bind(account_ids)
-        .bind(point_types)
-        .bind(values)
-        .bind(transaction_hashes)
-        .bind(tx_indexes)
-        .bind(log_indexes)
-        .bind(created_ats)
-        .execute(pool)
-        .await
-        .context("failed to execute BATCH_INSERT_POINTS_SQL")?;
-    Ok(())
-}
-
-/// Call `BATCH_INSERT_GRADUATE_POINTS_SQL` with array params.
-#[allow(clippy::too_many_arguments)]
-pub async fn call_batch_insert_graduate_points(
-    pool: &PgPool,
-    token_ids: &[&str],
-    transaction_hashes: &[&str],
-    tx_indexes: &[i32],
-    log_indexes: &[i32],
-    values: &[bigdecimal::BigDecimal],
-    created_ats: &[i64],
-) -> Result<()> {
-    sqlx::query(observer::db::postgres::controller::point::BATCH_INSERT_GRADUATE_POINTS_SQL)
-        .bind(token_ids)
-        .bind(transaction_hashes)
-        .bind(tx_indexes)
-        .bind(log_indexes)
-        .bind(values)
-        .bind(created_ats)
-        .execute(pool)
-        .await
-        .context("failed to execute BATCH_INSERT_GRADUATE_POINTS_SQL")?;
-    Ok(())
-}
-
-/// Count `point_history` rows for a (account_id, transaction_hash, tx_index, log_index) PK.
-pub async fn count_point_history(
-    pool: &PgPool,
-    account_id: &str,
-    transaction_hash: &str,
-    tx_index: i32,
-    log_index: i32,
-) -> Result<i64> {
-    let row: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COUNT(*) FROM point_history
-        WHERE account_id = $1 AND transaction_hash = $2 AND tx_index = $3 AND log_index = $4
-        "#,
-    )
-    .bind(account_id)
-    .bind(transaction_hash)
-    .bind(tx_index)
-    .bind(log_index)
-    .fetch_one(pool)
-    .await
-    .context("failed to count point_history rows")?;
-    Ok(row.0)
-}
-
-/// Count all `point_history` rows for an account.
-pub async fn count_point_history_for_account(
-    pool: &PgPool,
-    account_id: &str,
-) -> Result<i64> {
-    let row: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM point_history WHERE account_id = $1",
-    )
-    .bind(account_id)
-    .fetch_one(pool)
-    .await
-    .context("failed to count point_history rows for account")?;
-    Ok(row.0)
 }
 
 /// Execute `GET_FALLBACK_PRICE_SQL` directly and return the single price

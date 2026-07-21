@@ -14,7 +14,6 @@ pub mod lp;
 pub mod lp_position;
 pub mod market;
 pub mod mint;
-pub mod point;
 pub mod pool;
 pub mod position;
 pub mod price;
