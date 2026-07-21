@@ -25,12 +25,17 @@ pub trait PriceUsdProvider: Send + Sync {
 }
 
 pub fn build_provider() -> Result<Arc<dyn PriceUsdProvider>> {
-    let mode = std::env::var("MODE").unwrap_or_else(|_| "mainnet".to_string());
+    // `PRICE_USD_MODE` overrides `MODE` for the token-USD (DefiLlama) provider
+    // only, so DefiLlama can be mocked while the quote (Pyth) provider runs
+    // live via its own `PRICE_MODE`. Falls back to `MODE`, then "mainnet".
+    let mode = std::env::var("PRICE_USD_MODE")
+        .or_else(|_| std::env::var("MODE"))
+        .unwrap_or_else(|_| "mainnet".to_string());
     if mode.to_lowercase() == "testnet" {
-        tracing::info!("[PRICE_USD] Using MockProvider (MODE=testnet)");
+        tracing::info!("[PRICE_USD] Using MockProvider (mode=testnet)");
         Ok(Arc::new(mock::MockProvider::fixed_str("0.03", "0.99")))
     } else {
-        tracing::info!("[PRICE_USD] Using DefiLlamaProvider (MODE={})", mode);
+        tracing::info!("[PRICE_USD] Using DefiLlamaProvider (mode={})", mode);
         Ok(Arc::new(defillama::DefiLlamaProvider::new()?))
     }
 }
