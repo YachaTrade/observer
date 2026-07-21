@@ -6,7 +6,7 @@ use observer::{
     client,
     db::{cache::CacheManager, postgres::PostgresDatabase, redis::RedisDatabase},
     event::{
-        common::{price as event_price, price_usd as event_price_usd, token as event_token},
+        common::{price as event_price, token as event_token},
         curve as event_curve, dex as event_dex,
         handler::run_event_handler as event_run_event_handler,
         lp_manager as event_lp_manager, vault as event_vault,
@@ -113,9 +113,6 @@ async fn main() -> Result<()> {
     set.spawn(event_run_event_handler::<event_price::PriceEventHandler>(
         EventType::Price,
     ));
-    set.spawn(event_run_event_handler::<
-        event_price_usd::PriceUsdEventHandler,
-    >(EventType::PriceUsd));
     set.spawn(event_run_event_handler::<event_vault::VaultEventHandler>(
         EventType::Vault,
     ));

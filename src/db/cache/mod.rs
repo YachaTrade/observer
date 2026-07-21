@@ -28,7 +28,8 @@ pub struct CacheManager {
     // Source: external oracle (Pyth). Meaning: USD price of `quote_id` at block.
     price_cache: Arc<DashMap<String, DashMap<i64, Arc<BigDecimal>>>>,
     // Per-quote insertion order for cleanup. quote_id -> VecDeque<block_number>
-    price_insertion_order: Arc<RwLock<std::collections::HashMap<String, std::collections::VecDeque<i64>>>>,
+    price_insertion_order:
+        Arc<RwLock<std::collections::HashMap<String, std::collections::VecDeque<i64>>>>,
     // Per-token WMON-implied price cache (on-chain inferred). token_id -> (block_number -> price-in-WMON).
     // Source: derived from RawSync reserve ratios as swaps are processed.
     // Meaning: how much WMON one unit of `token_id` is worth at block, expressed in
@@ -39,8 +40,8 @@ pub struct CacheManager {
     token_price_insertion_order:
         Arc<RwLock<std::collections::HashMap<String, std::collections::VecDeque<i64>>>>,
     // Per-token decimals factor cache (10^decimals as BigDecimal). Chain-immutable,
-    // so entries are insert-once and never evicted. Looked up in quote_token /
-    // dex_token / token tables on first miss.
+    // so entries are insert-once and never evicted. Quote-token decimals come
+    // from quote_token; indexed launch tokens use the protocol's 18-decimal default.
     token_decimals_cache: Arc<DashMap<String, Arc<BigDecimal>>>,
     // Set of EVM addresses (EIP-55 normalized) treated as MON-native for the
     // chain-implied price graph. Loaded once at startup from
@@ -84,8 +85,7 @@ impl CacheManager {
         let price_cache = Arc::new(DashMap::new());
         let price_insertion_order = Arc::new(RwLock::new(std::collections::HashMap::new()));
         let token_price_cache = Arc::new(DashMap::new());
-        let token_price_insertion_order =
-            Arc::new(RwLock::new(std::collections::HashMap::new()));
+        let token_price_insertion_order = Arc::new(RwLock::new(std::collections::HashMap::new()));
         let token_decimals_cache = Arc::new(DashMap::new());
 
         // Load native-equivalent quote addresses (WMON, LVMON, future MON-pegged
@@ -98,11 +98,10 @@ impl CacheManager {
         // LVMON-paired pools writing value=0 with no surfaced signal. Failing
         // loud forces the operator to apply migrations before the indexer runs.
         let native_addresses = {
-            let rows: Vec<(String,)> = sqlx::query_as(
-                "SELECT quote_id FROM quote_token WHERE is_native = TRUE",
-            )
-            .fetch_all(&postgres.pool)
-            .await?;
+            let rows: Vec<(String,)> =
+                sqlx::query_as("SELECT quote_id FROM quote_token WHERE is_native = TRUE")
+                    .fetch_all(&postgres.pool)
+                    .await?;
             let mut set = std::collections::HashSet::new();
             for (raw,) in rows {
                 if let Ok(addr) = raw.parse::<alloy::primitives::Address>() {
@@ -116,7 +115,10 @@ impl CacheManager {
             // case above; we still want loud failure if the query itself
             // errors out.
             set.insert(crate::config::WNATIVE_ADDRESS.clone());
-            info!("[CACHE] Loaded {} native-equivalent quote addresses", set.len());
+            info!(
+                "[CACHE] Loaded {} native-equivalent quote addresses",
+                set.len()
+            );
             Arc::new(set)
         };
 
@@ -197,44 +199,27 @@ impl CacheManager {
     }
 
     //-------------------------------------------------------------------------
-    // 화이트리스트 토큰 관련 메서드들
+    // Indexed token membership
     //-------------------------------------------------------------------------
 
-    /// 화이트리스트에 토큰 추가 (Redis + PostgreSQL)
-    pub async fn insert_white_list_token(&self, token: &str, is_white: bool) -> Result<()> {
-        // Redis에 먼저 추가
-        self.redis.insert_white_list_token(token, is_white).await?;
-
-        // PostgreSQL 관련 로직이 필요하면 여기에 추가
-
-        Ok(())
-    }
-
-    /// 토큰이 화이트리스트에 있는지 확인 (Redis 캐시 우선, 없으면 PostgreSQL에서 조회)
-    pub async fn check_white_list_token(&self, token: &str) -> Result<bool> {
-        // Redis 캐시 확인 (기존 코드 유지)
-        // Redis 캐시 확인
-        match self.redis.check_white_list_token(token).await {
+    /// Return whether `token_id` exists in the canonical token table.
+    pub async fn token_exists(&self, token_id: &str) -> Result<bool> {
+        match self.redis.get_token_exists(token_id).await {
             Ok(Some(exists)) => return Ok(exists),
-            Ok(None) => {
-                // Redis에 없는 경우 PostgreSQL에서 확인
-            }
+            Ok(None) => {}
             Err(e) => {
-                error!("Error checking token in Redis whitelist: {}", e);
-                // Redis 에러는 무시하고 PostgreSQL에서 계속 시도
+                error!("Error checking token membership in Redis: {}", e);
             }
         }
 
-        // PostgreSQL에서 토큰 존재 확인 - 재시도 로직 추가
         let max_retries = 5;
         let mut retry_count = 0;
-        let backoff_base = 500; // 기본 대기 시간 (밀리초)
+        let backoff_base = 500;
 
         while retry_count < max_retries {
-            // PostgreSQL 쿼리 실행
             let query = r#"SELECT EXISTS(SELECT 1 FROM token WHERE token_id = $1) as exists"#;
             match sqlx::query(query)
-                .bind(token)
+                .bind(token_id)
                 .fetch_one(&self.postgres.pool)
                 .await
             {
@@ -242,110 +227,33 @@ impl CacheManager {
                     let exists: bool = row.get("exists");
                     debug!(
                         "Token existence check in PostgreSQL: token={}, exists={}",
-                        token, exists
+                        token_id, exists
                     );
-
-                    match exists {
-                        true => {
-                            // 존재하는 토큰은 화이트리스트로 간주하고 Redis에 캐싱
-                            if let Err(e) = self.redis.insert_white_list_token(token, true).await {
-                                warn!(
-                                    "check_white_list_token - Failed to cache white list token in Redis: {}",
-                                    e
-                                );
-                                continue;
-                            }
-                        }
-                        false => {
-                            // is_white false로 redis에 저장
-                            if let Err(e) = self.redis.insert_white_list_token(token, false).await {
-                                warn!(
-                                    "check_white_list_token - Failed to cache white list token in Redis: {}",
-                                    e
-                                );
-                                continue;
-                            }
-                        }
+                    if let Err(e) = self.redis.set_token_exists(token_id, exists).await {
+                        warn!(
+                            "token_exists - Failed to cache token membership in Redis: {}",
+                            e
+                        );
                     }
-
                     return Ok(exists);
                 }
                 Err(e) => {
-                    // 연결 관련 오류인지 확인
-
-                    // 재시도 가능한 오류
                     retry_count += 1;
-
-                    // 지수 백오프 계산 (1차: 500ms, 2차: 1000ms, 3차: 2000ms)
                     let backoff_time = backoff_base * (1 << (retry_count - 1));
-
                     warn!(
-                        "check_white_list_token - 데이터베이스 연결 오류 ({}), {}ms 후 재시도 {}/{}...: {}",
-                        token, backoff_time, retry_count, max_retries, e
+                        "token_exists - database error ({}), retrying in {}ms ({}/{}): {}",
+                        token_id, backoff_time, retry_count, max_retries, e
                     );
-
-                    // 대기 후 재시도
                     tokio::time::sleep(std::time::Duration::from_millis(backoff_time)).await;
-                    continue;
                 }
             }
         }
 
-        // 최대 재시도 횟수를 초과한 경우
         error!(
-            "check_white_list_token - PostgreSQL 연결 최대 재시도 횟수 초과 ({}), 기본값 반환",
-            token
+            "token_exists - maximum PostgreSQL retries exceeded ({}), returning false",
+            token_id
         );
         Ok(false)
-    }
-
-    //-------------------------------------------------------------------------
-    // Fee Config 관련 메서드들
-    //-------------------------------------------------------------------------
-
-    /// Fee config 저장
-    pub async fn insert_fee_config(&self, token: &str, creator_rate: u16, curve_rate: u16, dex_rate: u16) -> Result<()> {
-        self.redis.insert_fee_config(token, creator_rate, curve_rate, dex_rate).await?;
-        Ok(())
-    }
-
-    /// Fee config 조회 (Redis → DB fallback) → (creator_rate, curve_rate, dex_rate)
-    pub async fn get_fee_config(&self, token: &str) -> Result<Option<(u16, u16, u16)>> {
-        // Redis 캐시 확인
-        match self.redis.get_fee_config(token).await {
-            Ok(Some(config)) => return Ok(Some(config)),
-            Ok(None) => {}
-            Err(e) => {
-                error!("Error getting fee config from Redis: {}", e);
-            }
-        }
-
-        // PostgreSQL에서 조회
-        let db = PostgresDatabase::instance()?;
-        match sqlx::query_as::<_, (i16, i16, i16)>(
-            "SELECT creator_fee_rate, curve_protocol_fee_rate, dex_protocol_fee_rate FROM fee_config WHERE token_id = $1"
-        )
-        .bind(token)
-        .fetch_optional(&db.pool)
-        .await
-        {
-            Ok(Some((creator, curve, dex))) => {
-                let config = (creator as u16, curve as u16, dex as u16);
-                if let Err(e) = self
-                    .redis
-                    .insert_fee_config(token, config.0, config.1, config.2)
-                    .await
-                {
-                    warn!("[CACHE] Failed to cache fee_config for {}: {}", token, e);
-                }
-                Ok(Some(config))
-            }
-            Ok(None) => Ok(None),
-            Err(e) => {
-                error!("Failed to get fee_config from DB for token {}: {}", token, e);
-                Ok(None)
-            }
-        }
     }
 
     //-------------------------------------------------------------------------
@@ -386,12 +294,10 @@ impl CacheManager {
 
         // PostgreSQL에서 조회
         let db = PostgresDatabase::instance()?;
-        match sqlx::query_scalar::<_, String>(
-            "SELECT quote_id FROM market WHERE token_id = $1"
-        )
-        .bind(token)
-        .fetch_optional(&db.pool)
-        .await
+        match sqlx::query_scalar::<_, String>("SELECT quote_id FROM market WHERE token_id = $1")
+            .bind(token)
+            .fetch_optional(&db.pool)
+            .await
         {
             Ok(Some(quote)) => {
                 let normalized = to_checksum(&quote);
@@ -406,56 +312,6 @@ impl CacheManager {
                 error!("Failed to get quote_id from DB for token {}: {}", token, e);
                 Ok(None)
             }
-        }
-    }
-
-    //-------------------------------------------------------------------------
-    // dex_token 존재 캐시 (PairCreated handler 의 fast-path)
-    //-------------------------------------------------------------------------
-
-    /// "이 token 이 dex_token 테이블에 이미 등록돼있나" 를 Redis 캐시 우선으로
-    /// 조회. cache miss 시 PostgreSQL 에서 확인 → 존재 확인되면 Redis 에
-    /// marker 저장. 다음 hit 부터 PG hit 0.
-    ///
-    /// PairCreated 핸들러가 매 batch 호출하므로 cache miss 비용이 누적되지
-    /// 않도록 hit/miss 양쪽 모두 정규화 패턴 (get_pool_pair / get_token_quote_id
-    /// 와 동일) 따른다.
-    pub async fn dex_token_exists(&self, token_id: &str) -> Result<bool> {
-        // Redis 캐시 우선
-        match self.redis.get_dex_token_exists(token_id).await {
-            Ok(true) => return Ok(true),
-            Ok(false) => {}
-            Err(e) => {
-                error!("[CACHE] Redis dex_token check failed for {}: {}", token_id, e);
-            }
-        }
-
-        // PostgreSQL fallback
-        let db = PostgresDatabase::instance()?;
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM dex_token WHERE token_id = $1)",
-        )
-        .bind(token_id)
-        .fetch_one(&db.pool)
-        .await
-        .map_err(|e| anyhow!("dex_token existence query failed: {}", e))?;
-
-        // PG hit 이면 Redis 에 marker 저장 (다음 lookup 부터 cache hit)
-        if exists {
-            if let Err(e) = self.redis.mark_dex_token_exists(token_id).await {
-                warn!("[CACHE] Failed to cache dex_token marker for {}: {}", token_id, e);
-            }
-        }
-
-        Ok(exists)
-    }
-
-    /// PairCreated 핸들러가 새 dex_token row 를 batch insert 한 직후 호출 —
-    /// 다음 PairCreated 처리 (다른 stream / 다음 batch) 가 PG 조회 없이
-    /// Redis 만으로 short-circuit 가능하도록 marker 를 미리 채움.
-    pub async fn mark_dex_token_exists(&self, token_id: &str) {
-        if let Err(e) = self.redis.mark_dex_token_exists(token_id).await {
-            warn!("[CACHE] Failed to mark dex_token cache for {}: {}", token_id, e);
         }
     }
 
@@ -586,7 +442,10 @@ impl CacheManager {
                 Ok(row) => {
                     let exists: bool = row.get("exists");
                     if let Err(e) = self.redis.insert_token_pool_flag(pool, exists).await {
-                        warn!("[CACHE] Failed to cache token_pool_flag for {}: {}", pool, e);
+                        warn!(
+                            "[CACHE] Failed to cache token_pool_flag for {}: {}",
+                            pool, e
+                        );
                     }
                     return Ok(exists);
                 }
@@ -850,11 +709,7 @@ impl CacheManager {
     }
 
     /// Batch insert prices into the memory cache for a specific quote.
-    pub async fn insert_price_batch_for_quote(
-        &self,
-        quote_id: &str,
-        prices: &[(i64, BigDecimal)],
-    ) {
+    pub async fn insert_price_batch_for_quote(&self, quote_id: &str, prices: &[(i64, BigDecimal)]) {
         if prices.is_empty() {
             return;
         }
@@ -931,10 +786,7 @@ impl CacheManager {
     }
 
     /// Most recent price (any block) for a specific quote.
-    pub async fn get_latest_price_for_quote(
-        &self,
-        quote_id: &str,
-    ) -> Option<Arc<BigDecimal>> {
+    pub async fn get_latest_price_for_quote(&self, quote_id: &str) -> Option<Arc<BigDecimal>> {
         self.price_cache.get(quote_id).and_then(|inner| {
             inner
                 .iter()
@@ -1001,43 +853,6 @@ impl CacheManager {
                 error!(
                     "[CACHE] Failed to get price from DB: quote={} block={} err={}",
                     quote_id, block_number, e
-                );
-                None
-            }
-        }
-    }
-
-    pub async fn get_price_usd_before(
-        &self,
-        token_id: &str,
-        block_number: i64,
-    ) -> Option<BigDecimal> {
-        let result = sqlx::query_scalar::<_, BigDecimal>(
-            r#"
-            SELECT price FROM price_usd
-            WHERE token_id = $1 AND block_number <= $2
-            ORDER BY block_number DESC
-            LIMIT 1
-            "#,
-        )
-        .bind(token_id)
-        .bind(block_number)
-        .fetch_optional(&self.postgres.pool)
-        .await;
-
-        match result {
-            Ok(Some(price)) => {
-                debug!(
-                    "[CACHE] Found USD price from DB: token={} block<={}",
-                    token_id, block_number
-                );
-                Some(price)
-            }
-            Ok(None) => None,
-            Err(e) => {
-                error!(
-                    "[CACHE] Failed to get USD price from DB: token={} block={} err={}",
-                    token_id, block_number, e
                 );
                 None
             }
@@ -1111,11 +926,7 @@ impl CacheManager {
     }
 
     /// Cleanup: remove cached prices at or below `block_number` for a specific quote.
-    pub async fn remove_prices_before_or_equal_for_quote(
-        &self,
-        quote_id: &str,
-        block_number: i64,
-    ) {
+    pub async fn remove_prices_before_or_equal_for_quote(&self, quote_id: &str, block_number: i64) {
         let mut order_map = self.price_insertion_order.write().await;
         if let Some(order) = order_map.get_mut(quote_id) {
             while let Some(&oldest) = order.front() {
@@ -1151,32 +962,22 @@ impl CacheManager {
     // Token decimals lookup (chain-immutable, insert-once cache)
     //-------------------------------------------------------------------------
 
-    /// Decimals factor (`10^decimals`) for a token. Looks up in `quote_token`
-    /// then `dex_token`.
+    /// Decimals factor (`10^decimals`) for a token. Registered quote tokens use
+    /// `quote_token.decimals`; launch tokens use the protocol's 18-decimal default.
     ///
     /// Caching policy:
     ///   - Confirmed DB hit → cache forever (decimals are chain-immutable).
-    ///   - DB miss (token not yet registered) or transient DB error → return
-    ///     the 18 fallback but do NOT cache, so a later call can re-resolve
-    ///     once the `dex_token` row arrives or the DB recovers. Caching the
-    ///     fallback would permanently skew prices for any non-18 token whose
-    ///     first lookup happened to race ahead of its registration.
+    ///   - DB miss or transient DB error → return the 18 fallback but do not
+    ///     cache it, so a later call can re-resolve a newly registered quote.
     pub async fn get_token_decimals_factor(&self, token_id: &str) -> Arc<BigDecimal> {
         if let Some(entry) = self.token_decimals_cache.get(token_id) {
             return Arc::clone(entry.value());
         }
-        let lookup = sqlx::query_scalar::<_, i32>(
-            r#"
-            SELECT decimals FROM (
-                SELECT decimals FROM quote_token WHERE quote_id = $1
-                UNION ALL
-                SELECT decimals FROM dex_token WHERE token_id = $1
-            ) t LIMIT 1
-            "#,
-        )
-        .bind(token_id)
-        .fetch_optional(&self.postgres.pool)
-        .await;
+        let lookup =
+            sqlx::query_scalar::<_, i32>("SELECT decimals FROM quote_token WHERE quote_id = $1")
+                .bind(token_id)
+                .fetch_optional(&self.postgres.pool)
+                .await;
 
         match lookup {
             Ok(Some(decimals)) => {
@@ -1311,10 +1112,12 @@ impl CacheManager {
             self.insert_token_price(t0, block, &r1 / &r0).await;
             true
         } else if let Some(t0_price) = self.get_latest_token_price_before(t0, block).await {
-            self.insert_token_price(t1, block, (&r0 * &*t0_price) / &r1).await;
+            self.insert_token_price(t1, block, (&r0 * &*t0_price) / &r1)
+                .await;
             true
         } else if let Some(t1_price) = self.get_latest_token_price_before(t1, block).await {
-            self.insert_token_price(t0, block, (&r1 * &*t1_price) / &r0).await;
+            self.insert_token_price(t0, block, (&r1 * &*t1_price) / &r0)
+                .await;
             true
         } else {
             false
@@ -1329,11 +1132,10 @@ impl CacheManager {
     /// `block_number` — the regular inference path will overwrite these with
     /// fresh per-block entries as RawSyncs flow in.
     pub async fn warm_up_token_price_cache(&self, sentinel_block: i64) -> Result<()> {
-        let rows: Vec<(String, String, String, BigDecimal, BigDecimal)> = sqlx::query_as(
-            "SELECT pool_id, token0, token1, reserve0, reserve1 FROM pool",
-        )
-        .fetch_all(&self.postgres.pool)
-        .await?;
+        let rows: Vec<(String, String, String, BigDecimal, BigDecimal)> =
+            sqlx::query_as("SELECT pool_id, token0, token1, reserve0, reserve1 FROM pool")
+                .fetch_all(&self.postgres.pool)
+                .await?;
 
         if rows.is_empty() {
             info!("[CACHE] warm_up_token_price_cache: pool table empty, skipping");
@@ -1466,10 +1268,7 @@ impl CacheManager {
     }
 
     /// Legacy WMON-only latest-before lookup.
-    pub async fn get_latest_price_before(
-        &self,
-        block_number: i64,
-    ) -> Option<Arc<BigDecimal>> {
+    pub async fn get_latest_price_before(&self, block_number: i64) -> Option<Arc<BigDecimal>> {
         self.get_latest_price_before_for_quote(&WNATIVE_ADDRESS, block_number)
             .await
     }
@@ -1637,8 +1436,7 @@ impl CacheManager {
         // 잡으면 swap row의 sender가 0x0으로 저장되는 문제 방지.
         const ZERO_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
         const DEAD_ADDRESS: &str = "0x000000000000000000000000000000000000dEaD";
-        if address.eq_ignore_ascii_case(ZERO_ADDRESS)
-            || address.eq_ignore_ascii_case(DEAD_ADDRESS)
+        if address.eq_ignore_ascii_case(ZERO_ADDRESS) || address.eq_ignore_ascii_case(DEAD_ADDRESS)
         {
             return Ok(false);
         }
@@ -1664,13 +1462,19 @@ impl CacheManager {
             || (code.len() == 23 && code[0] == 0xef && code[1] == 0x01 && code[2] == 0x00);
 
         // 별도 캐시 키에 저장 (check_is_eoa와 충돌 방지)
-        if let Err(e) = self.redis.insert_is_eoa_or_delegated(address, is_eoa_or_delegated).await {
+        if let Err(e) = self
+            .redis
+            .insert_is_eoa_or_delegated(address, is_eoa_or_delegated)
+            .await
+        {
             warn!("Failed to cache EOA/delegated status in Redis: {}", e);
         }
 
         debug!(
             "EOA/delegated check via RPC: address={}, result={}, code_len={}",
-            address, is_eoa_or_delegated, code.len()
+            address,
+            is_eoa_or_delegated,
+            code.len()
         );
         Ok(is_eoa_or_delegated)
     }
@@ -1680,14 +1484,14 @@ impl CacheManager {
     //-------------------------------------------------------------------------
 
     /// TX sender 조회 (Redis 캐시 우선, 없으면 RPC 호출 후 캐싱)
-    pub async fn get_tx_sender(
-        &self,
-        tx_hash: &str,
-    ) -> Result<Option<alloy::primitives::Address>> {
+    pub async fn get_tx_sender(&self, tx_hash: &str) -> Result<Option<alloy::primitives::Address>> {
         // Redis 캐시 확인
         match self.redis.get_tx_sender(tx_hash).await {
             Ok(Some(sender_str)) => {
-                debug!("TX sender found in Redis: tx_hash={}, sender={}", tx_hash, sender_str);
+                debug!(
+                    "TX sender found in Redis: tx_hash={}, sender={}",
+                    tx_hash, sender_str
+                );
                 let sender = sender_str
                     .parse::<alloy::primitives::Address>()
                     .map_err(|e| anyhow!("Invalid cached sender address: {}", e))?;
@@ -1802,9 +1606,10 @@ impl CacheManager {
             .map_err(|e| anyhow!("Invalid token address: {}", e))?;
 
         // ERC20 Transfer(address indexed from, address indexed to, uint256 value)
-        let transfer_sig: alloy::primitives::B256 = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-            .parse()
-            .unwrap();
+        let transfer_sig: alloy::primitives::B256 =
+            "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+                .parse()
+                .unwrap();
 
         if let Ok(Some(receipt)) = client.get_transaction_receipt(hash).await {
             for log in receipt.inner.logs() {
@@ -1845,7 +1650,10 @@ impl CacheManager {
                 Ok(sender.to_string())
             }
             _ => {
-                warn!("All resolution failed for tx={}, using event_sender", tx_hash);
+                warn!(
+                    "All resolution failed for tx={}, using event_sender",
+                    tx_hash
+                );
                 Ok(event_sender.to_string())
             }
         }

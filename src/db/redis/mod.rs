@@ -7,7 +7,7 @@ use redis::{AsyncCommands, Client, aio::ConnectionManager};
 use tracing::{debug, error, info};
 
 // Redis에 저장할 데이터 유형별 키 접두사
-const PREFIX_WHITE_LIST_TOKEN: &str = "white_list_token_v2:";
+const PREFIX_TOKEN_EXISTS: &str = "token_exists:";
 const PREFIX_IS_TOKEN_POOL: &str = "is_token_pool:";
 const PREFIX_IS_DEX_POOL: &str = "is_dex_pool:";
 
@@ -16,8 +16,6 @@ const PREFIX_TOKEN_DEV: &str = "token_dev_v2:";
 const PREFIX_TOKEN_POOL: &str = "token_pool_v2:";
 const PREFIX_TOKEN_PAIR: &str = "token_pair_v2:";
 const PREFIX_TOKEN_QUOTE: &str = "token_quote_id:";
-const PREFIX_DEX_TOKEN_EXISTS: &str = "dex_token_exists:";
-const PREFIX_FEE_CONFIG: &str = "fee_config:";
 const PREFIX_TOKEN_CREATOR: &str = "token_creator:";
 const PREFIX_EOA: &str = "eoa:";
 const PREFIX_EOA_DELEGATED: &str = "eoa_delegated:";
@@ -31,7 +29,7 @@ const PREFIX_TX_SENDER: &str = "tx_sender:";
 /// entries in Redis that can poison address-casing assumptions after
 /// a restart.
 const ALL_PREFIXES: &[&str] = &[
-    PREFIX_WHITE_LIST_TOKEN,
+    PREFIX_TOKEN_EXISTS,
     PREFIX_IS_TOKEN_POOL,
     PREFIX_IS_DEX_POOL,
     PREFIX_TOKEN_CURVE,
@@ -39,8 +37,6 @@ const ALL_PREFIXES: &[&str] = &[
     PREFIX_TOKEN_POOL,
     PREFIX_TOKEN_PAIR,
     PREFIX_TOKEN_QUOTE,
-    PREFIX_DEX_TOKEN_EXISTS,
-    PREFIX_FEE_CONFIG,
     PREFIX_TOKEN_CREATOR,
     PREFIX_EOA,
     PREFIX_EOA_DELEGATED,
@@ -248,45 +244,40 @@ impl RedisDatabase {
     }
 
     //-------------------------------------------------------------------------
-    // 화이트리스트 토큰 관련 메서드들
+    // Indexed token membership
     //-------------------------------------------------------------------------
 
-    /// 화이트리스트에 토큰 추가
-    pub async fn insert_white_list_token(&self, token: &str, is_white: bool) -> Result<()> {
+    pub async fn set_token_exists(&self, token_id: &str, exists: bool) -> Result<()> {
         let mut conn = self.get_conn().await?;
 
         conn.set_ex::<String, bool, ()>(
-            format!("{}{}", PREFIX_WHITE_LIST_TOKEN, token),
-            is_white,
+            format!("{}{}", PREFIX_TOKEN_EXISTS, token_id),
+            exists,
             CACHE_EXPIRATION,
         )
         .await
         .map_err(|e| {
-            error!("[REDIS] Failed to insert white list token: {}", e);
-            anyhow!("Failed to insert white list token: {}", e)
+            error!("[REDIS] Failed to cache token membership: {}", e);
+            anyhow!("Failed to cache token membership: {}", e)
         })?;
 
         debug!(
-            "White list token inserted into Redis: {} = {}",
-            token, is_white
+            "Token membership cached in Redis: {} = {}",
+            token_id, exists
         );
         Ok(())
     }
 
-    /// 토큰이 화이트리스트에 있는지 확인
-    pub async fn check_white_list_token(&self, token: &str) -> Result<Option<bool>> {
+    pub async fn get_token_exists(&self, token_id: &str) -> Result<Option<bool>> {
         let mut conn = self.get_conn().await?;
-        let key = format!("{}{}", PREFIX_WHITE_LIST_TOKEN, token);
+        let key = format!("{}{}", PREFIX_TOKEN_EXISTS, token_id);
 
         let exists: Option<bool> = conn.get(&key).await.map_err(|e| {
-            error!("[REDIS] Failed to check white list token: {}", e);
-            anyhow!("Failed to check white list token in Redis: {}", e)
+            error!("[REDIS] Failed to get token membership: {}", e);
+            anyhow!("Failed to get token membership from Redis: {}", e)
         })?;
 
-        // 토큰이 존재하고 true인 경우만 TTL 갱신
-        if let Some(is_white) = exists
-            && is_white
-        {
+        if exists.is_some() {
             self.refresh_ttl(&mut conn, &key).await?;
         }
 
@@ -525,96 +516,6 @@ impl RedisDatabase {
     }
 
     //-------------------------------------------------------------------------
-    // dex_token 존재 캐시 (PairCreated 핸들러용)
-    //-------------------------------------------------------------------------
-
-    /// Mark a token as registered in `dex_token` so subsequent PairCreated
-    /// processing for the same token can short-circuit the metadata query +
-    /// RPC fetch. Value is a fixed marker ("1") — only the key presence
-    /// matters.
-    pub async fn mark_dex_token_exists(&self, token_id: &str) -> Result<()> {
-        let mut conn = self.get_conn().await?;
-
-        conn.set_ex::<String, &str, ()>(
-            format!("{}{}", PREFIX_DEX_TOKEN_EXISTS, token_id),
-            "1",
-            CACHE_EXPIRATION,
-        )
-        .await
-        .map_err(|e| {
-            error!("[REDIS] Failed to mark dex_token: {}", e);
-            anyhow!("Failed to mark dex_token exists in Redis: {}", e)
-        })?;
-
-        Ok(())
-    }
-
-    /// Returns true when the token has been previously registered in
-    /// `dex_token` (either via this cache marker or a sibling stream).
-    pub async fn get_dex_token_exists(&self, token_id: &str) -> Result<bool> {
-        let mut conn = self.get_conn().await?;
-        let key = format!("{}{}", PREFIX_DEX_TOKEN_EXISTS, token_id);
-
-        let marker: Option<String> = conn.get(&key).await.map_err(|e| {
-            error!("[REDIS] Failed to get dex_token marker: {}", e);
-            anyhow!("Failed to get dex_token marker from Redis: {}", e)
-        })?;
-
-        if marker.is_some() {
-            self.refresh_ttl(&mut conn, &key).await?;
-        }
-
-        Ok(marker.is_some())
-    }
-
-    //-------------------------------------------------------------------------
-    // Fee Config 관련 메서드들
-    //-------------------------------------------------------------------------
-
-    /// Fee config 저장 (creator_rate:curve_rate:dex_rate)
-    pub async fn insert_fee_config(&self, token: &str, creator_rate: u16, curve_rate: u16, dex_rate: u16) -> Result<()> {
-        let mut conn = self.get_conn().await?;
-        let value = format!("{}:{}:{}", creator_rate, curve_rate, dex_rate);
-
-        conn.set_ex::<String, String, ()>(
-            format!("{}{}", PREFIX_FEE_CONFIG, token),
-            value,
-            CACHE_EXPIRATION,
-        )
-        .await
-        .map_err(|e| {
-            error!("[REDIS] Failed to insert fee config: {}", e);
-            anyhow!("Failed to insert fee config into Redis: {}", e)
-        })?;
-
-        Ok(())
-    }
-
-    /// Fee config 조회 → (creator_rate, curve_rate, dex_rate)
-    pub async fn get_fee_config(&self, token: &str) -> Result<Option<(u16, u16, u16)>> {
-        let mut conn = self.get_conn().await?;
-        let key = format!("{}{}", PREFIX_FEE_CONFIG, token);
-
-        let value: Option<String> = conn.get(&key).await.map_err(|e| {
-            error!("[REDIS] Failed to get fee config: {}", e);
-            anyhow!("Failed to get fee config from Redis: {}", e)
-        })?;
-
-        if let Some(v) = value {
-            self.refresh_ttl(&mut conn, &key).await?;
-            let parts: Vec<&str> = v.split(':').collect();
-            if parts.len() == 3 {
-                let creator = parts[0].parse().unwrap_or(0);
-                let curve = parts[1].parse().unwrap_or(0);
-                let dex = parts[2].parse().unwrap_or(0);
-                return Ok(Some((creator, curve, dex)));
-            }
-        }
-
-        Ok(None)
-    }
-
-    //-------------------------------------------------------------------------
     // POOL 페어 관련 메서드들
     //-------------------------------------------------------------------------
 
@@ -689,15 +590,13 @@ impl RedisDatabase {
     /// 캐시 통계 조회
     pub async fn get_cache_stats(&self) -> Result<CacheStats> {
         Ok(CacheStats {
-            white_list_tokens: self
-                .count_keys(&format!("{}*", PREFIX_WHITE_LIST_TOKEN))
+            indexed_tokens: self
+                .count_keys(&format!("{}*", PREFIX_TOKEN_EXISTS))
                 .await?,
             white_list_pools: self
                 .count_keys(&format!("{}*", PREFIX_IS_TOKEN_POOL))
                 .await?,
-            dex_pools: self
-                .count_keys(&format!("{}*", PREFIX_IS_DEX_POOL))
-                .await?,
+            dex_pools: self.count_keys(&format!("{}*", PREFIX_IS_DEX_POOL)).await?,
             token_curves: self.count_keys(&format!("{}*", PREFIX_TOKEN_CURVE)).await?,
             token_devs: self.count_keys(&format!("{}*", PREFIX_TOKEN_DEV)).await?,
             token_pools: self.count_keys(&format!("{}*", PREFIX_TOKEN_POOL)).await?,
@@ -777,7 +676,11 @@ impl RedisDatabase {
     }
 
     /// EOA 또는 EIP-7702 delegated EOA 여부 캐싱 (별도 키)
-    pub async fn insert_is_eoa_or_delegated(&self, address: &str, is_eoa_or_delegated: bool) -> Result<()> {
+    pub async fn insert_is_eoa_or_delegated(
+        &self,
+        address: &str,
+        is_eoa_or_delegated: bool,
+    ) -> Result<()> {
         let mut conn = self.get_conn().await?;
 
         conn.set_ex::<String, bool, ()>(
@@ -837,12 +740,11 @@ impl RedisDatabase {
 
         Ok(sender)
     }
-
 }
 
 #[derive(Debug)]
 pub struct CacheStats {
-    pub white_list_tokens: usize,
+    pub indexed_tokens: usize,
     pub white_list_pools: usize,
     pub dex_pools: usize,
     pub token_curves: usize,

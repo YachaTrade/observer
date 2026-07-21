@@ -6,7 +6,7 @@ Deployment status, required configuration, database constraints, and known basel
 
 ## Runtime contract
 
-The runtime starts exactly eight generic event handlers. Checkpoint names are stable public identifiers; implementation versions describe the selected contract ABI, not separate runtime streams.
+The runtime starts exactly seven generic event handlers. Checkpoint names are stable public identifiers; implementation versions describe the selected contract ABI, not separate runtime streams.
 
 | Event | Contract implementation | Checkpoint |
 | --- | --- | --- |
@@ -17,7 +17,6 @@ The runtime starts exactly eight generic event handlers. Checkpoint names are st
 | VaultRegistry | v2 VaultRegistry ABI | `vault_registry` |
 | Token | common ERC-20 stream | `token` |
 | Price | common quote-price stream | `price` |
-| PriceUsd | common token-USD stream | `price_usd` |
 
 Each handler follows the same pipeline:
 
@@ -25,7 +24,7 @@ Each handler follows the same pipeline:
 RPC logs/provider data -> Stream -> Channel -> Receive -> PostgreSQL/Redis
 ```
 
-Price, PriceUsd, and the admin-driven VaultRegistry stream are independent. Curve waits for Price; Dex, LpManager, and Vault wait for Curve with a one-block dependency offset. Token stays strictly behind Curve so token state cannot overtake token creation.
+Price and the admin-driven VaultRegistry stream are independent. Curve waits for Price; Dex, LpManager, and Vault wait for Curve with a one-block dependency offset. Token stays strictly behind Curve so token state cannot overtake token creation.
 
 Detailed event behavior is documented in [docs/event-indexing.md](docs/event-indexing.md), with public module references for [Curve](docs/event/curve.md), [Dex](docs/event/dex.md), [LpManager](docs/event/lp-manager.md), [Vault](docs/event/vault.md), [Dividend](docs/event/dividend.md), and [VaultRegistry](docs/event/vault_registry.md).
 

@@ -230,15 +230,11 @@ async fn parse_log(
                 let pair_str = pair.to_string();
                 let creator_str = creator.to_string();
 
-                let (white_list_token_result, white_list_pool_result, token_creator_result) = tokio::join!(
-                    cache_manager.insert_white_list_token(&token_str, true),
+                let (white_list_pool_result, token_creator_result) = tokio::join!(
                     cache_manager.set_token_pool_flag(&pair_str, true),
                     cache_manager.insert_token_creator(&token_str, &creator_str)
                 );
 
-                if let Err(e) = white_list_token_result {
-                    warn!("[CURVE] Failed to cache white list token: {}", e);
-                }
                 if let Err(e) = white_list_pool_result {
                     warn!("[CURVE] Failed to cache white list pool: {}", e);
                 }
