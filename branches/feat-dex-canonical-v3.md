@@ -14,4 +14,6 @@ dex 모듈을 Monad Capricorn CL에서 GIWA canonical Uniswap V3 풀 + GiwaRoute
 
 ## Outcome
 
-- (머지 시 작성)
+- 2026-07-21 `main`에 no-ff merge. 이 브랜치는 이번 세션 GIWA 작업 전체를 선형으로 담음: token.version/chain 제거(3c70f10) → vault/dividend 인덱싱 복원(8da4835) → v1/v2 평탄화(b9f0512) → v2_ 접두어 제거 + 테스트 하니스를 GIWA 스키마 서브모듈로 전환(d84dcf0, 9457e2c) → dex canonical V3(dfab0c3~e64eb69) → fee/point 인덱싱 제거(730c091) → point 컨트롤러/테스트 제거 + 스키마 bump(d98a095).
+- 검증: 전체 스위트 통과(기존 결함 pool_batch_update_reserves 3 · cache doc-test 2 제외). 스키마 서브모듈 = giwa/migrations 82b2b69(point 도메인 제거, 121테이블).
+- 배포 의존성: observer·api-server·migrations 동시 배포 필요. api-server는 point 4테이블 읽기 제거가 같은 배포에 포함돼야 함(별도 에이전트).
