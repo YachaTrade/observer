@@ -56,12 +56,17 @@ pub trait PriceProvider: Send + Sync {
 ///   preserving the legacy testnet hardcoded value.
 /// - otherwise      → [`pyth::PythProvider`] backed by the Pyth Hermes API.
 pub fn build_provider() -> Result<Arc<dyn PriceProvider>> {
-    let mode = std::env::var("MODE").unwrap_or_else(|_| "mainnet".to_string());
+    // `PRICE_MODE` overrides `MODE` for the quote (Pyth) provider only, so
+    // Pyth can run live while the token-USD (DefiLlama) provider stays mocked
+    // via its own `PRICE_USD_MODE`. Falls back to `MODE`, then "mainnet".
+    let mode = std::env::var("PRICE_MODE")
+        .or_else(|_| std::env::var("MODE"))
+        .unwrap_or_else(|_| "mainnet".to_string());
     if mode.to_lowercase() == "testnet" {
-        tracing::info!("[PRICE] Using MockProvider (MODE=testnet)");
+        tracing::info!("[PRICE] Using MockProvider (mode=testnet)");
         Ok(Arc::new(mock::MockProvider::fixed_str("0.03")))
     } else {
-        tracing::info!("[PRICE] Using PythProvider (MODE={})", mode);
+        tracing::info!("[PRICE] Using PythProvider (mode={})", mode);
         Ok(Arc::new(pyth::PythProvider::new()?))
     }
 }
