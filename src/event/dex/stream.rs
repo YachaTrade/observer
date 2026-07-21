@@ -20,7 +20,7 @@ use crate::{
     db::cache::CacheManager,
     sync::{BlockRange, EventType, stream::STREAM_MANAGER},
     types::{
-        dex::{DexBurn, DexEvent, DexMint, DexRouterBuy, DexRouterSell, DexSync, SetFeeProtocol},
+        dex::{DexBurn, DexEvent, DexMint, DexRouterBuy, DexRouterSell, DexSync},
         legacy_curve::{MarketType, Sell},
     },
     utils::to_big_decimal,
@@ -78,7 +78,6 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
                 IUniswapV3Pool::Swap::SIGNATURE,
                 IUniswapV3Pool::Mint::SIGNATURE,
                 IUniswapV3Pool::Burn::SIGNATURE,
-                IUniswapV3Pool::SetFeeProtocol::SIGNATURE,
                 GiwaRouter::Buy::SIGNATURE,
                 GiwaRouter::Sell::SIGNATURE,
             ]);
@@ -656,50 +655,6 @@ async fn parse_log(
 
             Ok(vec![DexEvent::from(sell)])
         }
-        Some(&IUniswapV3Pool::SetFeeProtocol::SIGNATURE_HASH) => {
-            let pool = log.address().to_string();
-
-            info!(
-                "[DEX] SetFeeProtocol event detected! pool={}, block={}, tx_hash={}",
-                pool, block_number, transaction_hash
-            );
-
-            let is_whitelist_dex = cache_manager.check_token_pool(&pool).await?;
-            if !is_whitelist_dex {
-                warn!(
-                    "[DEX] SetFeeProtocol skipped - pool {} is not in whitelist",
-                    pool
-                );
-                return Err(anyhow::anyhow!("Not a white list dex address"));
-            }
-
-            let IUniswapV3Pool::SetFeeProtocol {
-                feeProtocol0Old,
-                feeProtocol1Old,
-                feeProtocol0New,
-                feeProtocol1New,
-            } = log.log_decode()?.inner.data;
-
-            info!(
-                "[DEX] SetFeeProtocol parsed: pool={}, old=({},{}), new=({},{})",
-                pool, feeProtocol0Old, feeProtocol1Old, feeProtocol0New, feeProtocol1New
-            );
-
-            let set_fee = SetFeeProtocol {
-                pool_id: Arc::new(pool),
-                fee_protocol0_old: feeProtocol0Old,
-                fee_protocol1_old: feeProtocol1Old,
-                fee_protocol0_new: feeProtocol0New,
-                fee_protocol1_new: feeProtocol1New,
-                transaction_hash: Arc::new(transaction_hash),
-                block_number,
-                transaction_index,
-                log_index,
-            };
-
-            Ok(vec![DexEvent::from(set_fee)])
-        }
-
         _ => Err(anyhow::anyhow!("Unknown event type")),
     }
 }
@@ -767,13 +722,12 @@ mod tests {
     #[test]
     fn giwa_router_and_v3_pool_signatures_resolve() {
         // ABI 교체가 성공하면 이 심볼들이 컴파일된다. GiwaRouter.Buy/Sell,
-        // IUniswapV3Pool.Swap/Mint/Burn/SetFeeProtocol 시그니처 해시를 고정한다.
+        // IUniswapV3Pool.Swap/Mint/Burn 시그니처 해시를 고정한다.
         let _ = GiwaRouter::Buy::SIGNATURE_HASH;
         let _ = GiwaRouter::Sell::SIGNATURE_HASH;
         let _ = IUniswapV3Pool::Swap::SIGNATURE_HASH;
         let _ = IUniswapV3Pool::Mint::SIGNATURE_HASH;
         let _ = IUniswapV3Pool::Burn::SIGNATURE_HASH;
-        let _ = IUniswapV3Pool::SetFeeProtocol::SIGNATURE_HASH;
     }
 
     /// The dex handler filters GiwaRouter.Buy/Sell on `graduated`. This guards

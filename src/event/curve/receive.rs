@@ -4,23 +4,19 @@ use anyhow::Result;
 use bigdecimal::{BigDecimal, RoundingMode};
 
 use crate::{
-    config::{BONDING_CURVE_FEE_RATE, CREATE_FEE_AMOUNT, GRADUATE_FEE_AMOUNT},
     db::cache::CacheManager,
     db::postgres::{
         PostgresDatabase,
         controller::{
             account::AccountController,
             chart::{ChartBatchData, ChartController},
-            fee::FeeController,
             market::{CurveSyncData, MarketController},
-            point::{PointBatchData, PointController},
             swap::{SwapBatchData, SwapController},
             token::{TokenBatchData, TokenController},
         },
     },
     sync::{EventType, receive::RECEIVE_MANAGER},
     types::curve::{CurveEvent, MarketType},
-    types::fee::{FeeHistoryEvent, FeeType},
 };
 
 use super::CurveEventBatch;
@@ -144,14 +140,6 @@ fn giwa_market_type(market_type: &MarketType) -> &'static str {
     }
 }
 
-fn giwa_curve_fee_type(is_buy: bool) -> FeeType {
-    if is_buy {
-        FeeType::CurveBuy
-    } else {
-        FeeType::CurveSell
-    }
-}
-
 #[allow(clippy::question_mark)]
 async fn process_token_events(
     token: String,
@@ -167,12 +155,6 @@ async fn process_token_events(
 
     let cache_manager = CacheManager::instance()?;
 
-    // Get fee config for this token (creator_rate, curve_rate, dex_rate) in BPS
-    let fee_config = cache_manager.get_fee_config(&token).await.unwrap_or(None);
-    let curve_fee_bps = fee_config
-        .map(|(creator, curve, _dex)| BigDecimal::from(creator as u64 + curve as u64))
-        .unwrap_or_else(|| &*BONDING_CURVE_FEE_RATE * BigDecimal::from(100)); // fallback to hardcoded (% → BPS)
-
     // Resolve quote token for USD price conversion. `get_token_quote_id`
     // returns EIP-55 checksum (normalize at the cache boundary), so legacy
     // lowercase market.quote_id rows are case-corrected here before any
@@ -186,14 +168,12 @@ async fn process_token_events(
     let quote_decimals = crate::config::get_quote_decimals(&quote_id_str);
 
     let mut swap_batch = Vec::new();
-    let mut point_batch = Vec::new();
     let mut chart_map: HashMap<String, ChartBatchData> = HashMap::new();
     let mut sync_reserves: HashMap<(String, i32), Vec<SyncReserve>> = HashMap::new();
     let mut create_batch: Vec<TokenBatchData> = Vec::new();
     let mut graduate_events = Vec::new();
     let mut sync_events = Vec::new();
     let mut sniping_batch = Vec::new();
-    let mut fee_batch: Vec<FeeHistoryEvent> = Vec::new();
     let mut account_ids: HashSet<String> = HashSet::new();
 
     for event in events {
@@ -223,50 +203,6 @@ async fn process_token_events(
                     },
                 );
 
-                let block_num = create.block_number as i64;
-                let native_price = cache_manager
-                    .get_quote_usd_price(&quote_id_str, block_num)
-                    .await;
-
-                let value = if let Some(price) = &native_price {
-                    (&*CREATE_FEE_AMOUNT / quote_decimals) * &**price
-                } else {
-                    error!(
-                        "[CURVE] No price found for block {} in create event",
-                        block_num
-                    );
-                    BigDecimal::from(0)
-                };
-
-                // Create fee history
-                let fee_usd = if let Some(price) = &native_price {
-                    (&*CREATE_FEE_AMOUNT / quote_decimals) * &**price
-                } else {
-                    BigDecimal::from(0)
-                };
-                fee_batch.push(FeeHistoryEvent {
-                    transaction_hash: Arc::clone(&create.transaction_hash),
-                    log_index: create.log_index,
-                    account_id: Arc::clone(&create.creator),
-                    token_id: Arc::clone(&create.token),
-                    quote_amount: Arc::new((*CREATE_FEE_AMOUNT).clone()),
-                    usd_amount: Arc::new(fee_usd),
-                    fee_type: FeeType::Create,
-                    block_number: create.block_number,
-                    tx_index: create.transaction_index,
-                    block_timestamp: create.block_timestamp,
-                });
-
-                point_batch.push(PointBatchData {
-                    account_id: Arc::clone(&create.creator),
-                    point_type: "CREATE",
-                    value,
-                    transaction_hash: Arc::clone(&create.transaction_hash),
-                    tx_index: create.transaction_index as i32,
-                    log_index: create.log_index as i32,
-                    created_at: create.block_timestamp as i64,
-                });
-
                 create_batch.push(TokenBatchData {
                     token_id: (*create.token).clone(),
                     name: (*create.name).clone(),
@@ -295,48 +231,6 @@ async fn process_token_events(
                     graduate.token, graduate.pool, graduate.transaction_hash, graduate.block_number
                 );
                 graduate_events.push(graduate.clone());
-
-                let block_num = graduate.block_number as i64;
-                let native_price = cache_manager
-                    .get_quote_usd_price(&quote_id_str, block_num)
-                    .await;
-
-                let value = if let Some(price) = native_price {
-                    (&*GRADUATE_FEE_AMOUNT / quote_decimals) * &*price
-                } else {
-                    error!(
-                        "[CURVE] No price found for block {} in graduate event",
-                        block_num
-                    );
-                    BigDecimal::from(0)
-                };
-
-                match cache_manager.get_token_creator(&graduate.token).await {
-                    Ok(Some(creator)) => {
-                        account_ids.insert(creator.clone());
-                        point_batch.push(PointBatchData {
-                            account_id: Arc::new(creator),
-                            point_type: "GRADUATE",
-                            value,
-                            transaction_hash: Arc::clone(&graduate.transaction_hash),
-                            tx_index: graduate.transaction_index as i32,
-                            log_index: graduate.log_index as i32,
-                            created_at: graduate.block_timestamp as i64,
-                        });
-                    }
-                    Ok(None) => {
-                        warn!(
-                            "[CURVE] Creator not found for graduated token: {}",
-                            graduate.token
-                        );
-                    }
-                    Err(e) => {
-                        error!(
-                            "[CURVE] Failed to get creator for token {}: {}",
-                            graduate.token, e
-                        );
-                    }
-                }
             }
             CurveEvent::Sync(sync) => {
                 let price = (&*sync.virtual_quote_reserve / &*sync.virtual_token_reserve)
@@ -395,8 +289,6 @@ async fn process_token_events(
 
                 let market_type = giwa_market_type(&buy.market_type);
 
-                let point_value = (&value * &curve_fee_bps) / BigDecimal::from(10000);
-
                 swap_batch.push(SwapBatchData {
                     account_id: Arc::clone(&buy.tx_sender),
                     token_id: Arc::clone(&buy.token),
@@ -417,36 +309,6 @@ async fn process_token_events(
                 if let Some(chart_data) = chart_map.get_mut(&**buy.transaction_hash) {
                     chart_data.volume = (*buy.amount_in).clone();
                 }
-
-                point_batch.push(PointBatchData {
-                    account_id: Arc::clone(&buy.tx_sender),
-                    point_type: "CURVE",
-                    value: point_value,
-                    transaction_hash: Arc::clone(&buy.transaction_hash),
-                    tx_index: buy.transaction_index as i32,
-                    log_index: buy.log_index as i32,
-                    created_at: buy.block_timestamp as i64,
-                });
-
-                // Fee history
-                let fee_native = (&*buy.amount_in * &curve_fee_bps) / BigDecimal::from(10000);
-                let fee_usd = if let Some(price) = &price_opt {
-                    (&fee_native / quote_decimals) * &**price
-                } else {
-                    BigDecimal::from(0)
-                };
-                fee_batch.push(FeeHistoryEvent {
-                    transaction_hash: Arc::clone(&buy.transaction_hash),
-                    log_index: buy.log_index,
-                    account_id: Arc::clone(&buy.tx_sender),
-                    token_id: Arc::clone(&buy.token),
-                    quote_amount: Arc::new(fee_native),
-                    usd_amount: Arc::new(fee_usd),
-                    fee_type: giwa_curve_fee_type(true),
-                    block_number: buy.block_number,
-                    tx_index: buy.transaction_index,
-                    block_timestamp: buy.block_timestamp,
-                });
             }
             CurveEvent::Sell(sell) => {
                 account_ids.insert((*sell.tx_sender).clone());
@@ -475,8 +337,6 @@ async fn process_token_events(
 
                 let market_type = giwa_market_type(&sell.market_type);
 
-                let point_value = (&value * &curve_fee_bps) / BigDecimal::from(10000);
-
                 swap_batch.push(SwapBatchData {
                     account_id: Arc::clone(&sell.tx_sender),
                     token_id: Arc::clone(&sell.token),
@@ -497,36 +357,6 @@ async fn process_token_events(
                 if let Some(chart_data) = chart_map.get_mut(&**sell.transaction_hash) {
                     chart_data.volume = (*sell.amount_out).clone();
                 }
-
-                point_batch.push(PointBatchData {
-                    account_id: Arc::clone(&sell.tx_sender),
-                    point_type: "CURVE",
-                    value: point_value,
-                    transaction_hash: Arc::clone(&sell.transaction_hash),
-                    tx_index: sell.transaction_index as i32,
-                    log_index: sell.log_index as i32,
-                    created_at: sell.block_timestamp as i64,
-                });
-
-                // Fee history
-                let fee_native = (&*sell.amount_out * &curve_fee_bps) / BigDecimal::from(10000);
-                let fee_usd = if let Some(price) = &price_opt {
-                    (&fee_native / quote_decimals) * &**price
-                } else {
-                    BigDecimal::from(0)
-                };
-                fee_batch.push(FeeHistoryEvent {
-                    transaction_hash: Arc::clone(&sell.transaction_hash),
-                    log_index: sell.log_index,
-                    account_id: Arc::clone(&sell.tx_sender),
-                    token_id: Arc::clone(&sell.token),
-                    quote_amount: Arc::new(fee_native),
-                    usd_amount: Arc::new(fee_usd),
-                    fee_type: giwa_curve_fee_type(false),
-                    block_number: sell.block_number,
-                    tx_index: sell.transaction_index,
-                    block_timestamp: sell.block_timestamp,
-                });
             }
             CurveEvent::SnipingPenalty(penalty) => {
                 sniping_batch.push(crate::db::postgres::controller::SnipingPenaltyData {
@@ -549,10 +379,8 @@ async fn process_token_events(
     let token_controller = TokenController::new(db.clone());
     let market_controller = MarketController::new(db.clone());
     let pool_controller = crate::db::postgres::controller::pool::PoolController::new(db.clone());
-    let fee_controller = FeeController::new(db.clone());
     let swap_controller = SwapController::new(db.clone());
     let chart_controller = ChartController::new(db.clone());
-    let point_controller = PointController::new(db.clone());
     let sniping_controller = crate::db::postgres::controller::SnipingController::new(db.clone());
 
     let account_list: Vec<String> = account_ids.into_iter().collect();
@@ -686,8 +514,8 @@ async fn process_token_events(
         }
     }
 
-    // 4. Parallel: swap, chart, point, sniping, fee
-    let (swap_result, chart_result, point_result, sniping_result, fee_result) = tokio::join!(
+    // 4. Parallel: swap, chart, sniping
+    let (swap_result, chart_result, sniping_result) = tokio::join!(
         async {
             if !swap_batch.is_empty() {
                 swap_controller.batch_insert_swaps(&swap_batch).await
@@ -705,24 +533,10 @@ async fn process_token_events(
             }
         },
         async {
-            if !point_batch.is_empty() {
-                point_controller.batch_insert_points(&point_batch).await
-            } else {
-                Ok(())
-            }
-        },
-        async {
             if !sniping_batch.is_empty() {
                 sniping_controller
                     .batch_insert_sniping_penalties(&sniping_batch)
                     .await
-            } else {
-                Ok(())
-            }
-        },
-        async {
-            if !fee_batch.is_empty() {
-                fee_controller.batch_insert_fee_history(&fee_batch).await
             } else {
                 Ok(())
             }
@@ -735,37 +549,23 @@ async fn process_token_events(
     if let Err(e) = chart_result {
         error!("[CURVE] Chart batch failed for token {}: {:#}", token, e);
     }
-    if let Err(e) = point_result {
-        error!("[CURVE] Point batch failed for token {}: {:#}", token, e);
-    }
     if let Err(e) = sniping_result {
         error!(
             "[CURVE] Sniping penalty batch failed for token {}: {:#}",
             token, e
         );
     }
-    if let Err(e) = fee_result {
-        error!(
-            "[CURVE] Fee history batch failed for token {}: {:#}",
-            token, e
-        );
-    }
-
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{giwa_curve_fee_type, giwa_market_type};
-    use crate::types::{curve::MarketType, fee::FeeType};
+    use super::giwa_market_type;
+    use crate::types::curve::MarketType;
 
     #[test]
     fn giwa_curve_uses_generic_database_categories() {
         assert_eq!(giwa_market_type(&MarketType::Curve), "CURVE");
         assert_eq!(giwa_market_type(&MarketType::Dex), "DEX");
-        assert_eq!(giwa_curve_fee_type(true), FeeType::CurveBuy);
-        assert_eq!(giwa_curve_fee_type(false), FeeType::CurveSell);
-        assert_eq!(giwa_curve_fee_type(true).as_str(), "curve_buy");
-        assert_eq!(giwa_curve_fee_type(false).as_str(), "curve_sell");
     }
 }
