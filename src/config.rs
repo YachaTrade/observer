@@ -13,15 +13,46 @@ fn normalize_required_env_address(var: &str) -> String {
         .to_string()
 }
 
+/// Parse an address from an optional env var, normalized to EIP-55
+/// checksum form. An unset or empty variable disables that contract stream.
+fn normalize_optional_env_address(var: &str) -> String {
+    match env::var(var) {
+        Ok(raw) if !raw.is_empty() => raw
+            .parse::<Address>()
+            .unwrap_or_else(|e| {
+                panic!(
+                    "{} env var is not a valid EVM address '{}': {}",
+                    var, raw, e
+                )
+            })
+            .to_string(),
+        _ => String::new(),
+    }
+}
+
 lazy_static! {
     pub static ref BONDING_CURVE_ADDRESS: String =
         normalize_required_env_address("BONDING_CURVE");
     pub static ref DEX_FACTORY_ADDRESS: String =
         normalize_required_env_address("DEX_FACTORY");
+    // GiwaRouter address. On GIWA every trade routes through GiwaRouter,
+    // which emits Buy/Sell(graduated) — the dex handler filters graduated=true.
     pub static ref DEX_ROUTER_ADDRESS: String =
         normalize_required_env_address("DEX_ROUTER");
     pub static ref LP_MANAGER_ADDRESS: String =
         normalize_required_env_address("LP_MANAGER");
+    pub static ref BURN_VAULT_ADDRESS: String =
+        normalize_optional_env_address("BURN_VAULT");
+    pub static ref LP_VAULT_ADDRESS: String =
+        normalize_optional_env_address("LP_VAULT");
+    pub static ref CREATOR_FEE_VAULT_ADDRESS: String =
+        normalize_optional_env_address("CREATOR_FEE_VAULT");
+    pub static ref GIFT_VAULT_ADDRESS: String =
+        normalize_optional_env_address("GIFT_VAULT");
+    pub static ref DIVIDEND_VAULT_ADDRESS: String =
+        normalize_optional_env_address("DIVIDEND_VAULT");
+    pub static ref VAULT_REGISTRY_ADDRESS: String =
+        normalize_optional_env_address("VAULT_REGISTRY");
     // WETH address, normalized to EIP-55 checksum form at load time.
     // The env var may be set in any valid casing (lowercase, checksum,
     // etc.); we parse it through `alloy::primitives::Address` (case-
@@ -290,6 +321,12 @@ pub fn force_init_address_configs() {
     let _ = &*DEX_FACTORY_ADDRESS;
     let _ = &*DEX_ROUTER_ADDRESS;
     let _ = &*LP_MANAGER_ADDRESS;
+    let _ = &*BURN_VAULT_ADDRESS;
+    let _ = &*LP_VAULT_ADDRESS;
+    let _ = &*CREATOR_FEE_VAULT_ADDRESS;
+    let _ = &*GIFT_VAULT_ADDRESS;
+    let _ = &*DIVIDEND_VAULT_ADDRESS;
+    let _ = &*VAULT_REGISTRY_ADDRESS;
     tracing::info!(
         "[CONFIG] GIWA address configs normalized to EIP-55 checksum (WNATIVE={})",
         *WNATIVE_ADDRESS,

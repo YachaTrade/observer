@@ -6,7 +6,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     client::RpcClient,
-    config::WNATIVE_ADDRESS,
+    config::{BURN_VAULT_ADDRESS, GIFT_VAULT_ADDRESS, WNATIVE_ADDRESS},
     db::{postgres::PostgresDatabase, redis::RedisDatabase},
     sync::{EventType, stream::STREAM_MANAGER},
 };
@@ -1743,14 +1743,32 @@ impl CacheManager {
     ///    - is_buy=true: Transfer.to 중 EOA/delegated = 유저
     ///    - is_buy=false: Transfer.from 중 EOA/delegated = 유저
     /// 3. fallback: tx.origin 반환
+    ///
+    /// `swap_to`가 BurnVault/GiftVault 주소면 RPC 호출 없이 vault 자체를
+    /// actor로 귀속한다.
     pub async fn resolve_actor(
         &self,
         tx_hash: &str,
         event_sender: &str,
         token: &str,
         is_buy: bool,
+        swap_to: Option<&str>,
     ) -> Result<String> {
         const ZERO_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
+
+        for vault in [GIFT_VAULT_ADDRESS.as_str(), BURN_VAULT_ADDRESS.as_str()] {
+            if !vault.is_empty() && event_sender.eq_ignore_ascii_case(vault) {
+                return Ok(vault.to_string());
+            }
+        }
+
+        if let Some(to) = swap_to {
+            for vault in [BURN_VAULT_ADDRESS.as_str(), GIFT_VAULT_ADDRESS.as_str()] {
+                if !vault.is_empty() && to.eq_ignore_ascii_case(vault) {
+                    return Ok(vault.to_string());
+                }
+            }
+        }
 
         // Zero address는 burn target — actor 자격 없음.
         // EOA 체크를 건너뛰고 receipt 스캔 / tx.origin 으로 fall through.

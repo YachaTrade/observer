@@ -2,7 +2,6 @@
 //! instance. Spawns an ephemeral container via testcontainers and applies
 //! the baseline migrations.
 
-use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -94,59 +93,44 @@ pub async fn setup_test_db() -> Result<TestDb> {
     })
 }
 
-/// Apply every `NNNN_*.sql` file in `migrations/` in numeric order, plus
-/// `v2_upgrade_*.sql` scripts, `vault.sql`, and `dividend.sql`. Skips
-/// `1000_delete.sql` (drop statements) and `0018_api_keys.sql` (requires
-/// prod-only `pgactive` extension). The v2_upgrade scripts are idempotent
-/// (IF NOT EXISTS) and create tables like `fee_config`, `pool`, `dex_token`
-/// needed by V2 controller tests. `vault.sql` creates vault event/stats
-/// tables and their triggers. `dividend.sql` creates DividendVault
-/// event/stats tables and their triggers.
-async fn apply_baseline_migrations(pool: &PgPool) -> Result<()> {
-    let migrations_dir = Path::new("migrations");
-    let mut entries: Vec<_> = std::fs::read_dir(migrations_dir)
-        .with_context(|| format!("failed to read {}", migrations_dir.display()))?
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            let name = entry.file_name().into_string().unwrap_or_default();
-            if !name.ends_with(".sql") {
-                return false;
-            }
-            let first = match name.chars().next() {
-                Some(c) => c,
-                None => return false,
-            };
-            // Baseline files are NNNN_*.sql with leading digit, excluding
-            // the 1000_delete drop script and 0018_api_keys.sql (uses the
-            // prod-only pgactive extension). Also include
-            // v2_upgrade_new_tables.sql (creates V2-specific tables),
-            // vault.sql (vault event/stats tables + triggers), and
-            // dividend.sql (DividendVault event/stats tables + triggers).
-            // Excludes
-            // v2_upgrade_alter.sql which is for upgrading existing prod DBs
-            // with old column names — fresh test DBs already have the
-            // correct schema from baseline files.
-            (first.is_ascii_digit()
-                && !name.starts_with("1000_")
-                && name != "0018_api_keys.sql")
-                || name == "v2_upgrade_new_tables.sql"
-                || name == "vault.sql"
-                || name == "dividend.sql"
-        })
-        .collect();
-    entries.sort_by_key(|e| e.file_name());
+/// Path to the GIWA deployment schema. `migrations/` is a submodule of the
+/// YachaTrade/migrations repo, whose `0001_init.sql` is the single source of
+/// truth for what a fresh GIWA database looks like. Tests apply exactly what
+/// production applies, so a schema/code mismatch fails here instead of in
+/// deployment.
+const GIWA_SCHEMA: &str = "migrations/0001_init.sql";
 
-    for entry in entries {
-        let path = entry.path();
-        let sql = std::fs::read_to_string(&path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-        sqlx::raw_sql(&sql)
-            .execute(pool)
-            .await
-            .with_context(|| format!("failed to apply migration {}", path.display()))?;
-    }
+/// Section markers inside `0001_init.sql`. The consolidated file records the
+/// upstream file each block came from as `-- >>> <name>`, which lets a test
+/// re-run one block in isolation — see [`read_schema_section`].
+const SECTION_MARKER: &str = "-- >>> ";
+
+/// Apply the GIWA deployment schema to a fresh database.
+async fn apply_baseline_migrations(pool: &PgPool) -> Result<()> {
+    let sql = std::fs::read_to_string(GIWA_SCHEMA).with_context(|| {
+        format!("failed to read {GIWA_SCHEMA} — run `git submodule update --init`")
+    })?;
+    sqlx::raw_sql(&sql)
+        .execute(pool)
+        .await
+        .with_context(|| format!("failed to apply {GIWA_SCHEMA}"))?;
 
     Ok(())
+}
+
+/// Return one `-- >>> <name>` block of the consolidated schema, for tests that
+/// re-run a single idempotent block (e.g. a backfill) and assert it reproduces
+/// what the triggers accumulated.
+pub fn read_schema_section(name: &str) -> Result<String> {
+    let sql = std::fs::read_to_string(GIWA_SCHEMA)
+        .with_context(|| format!("failed to read {GIWA_SCHEMA}"))?;
+    let header = format!("{SECTION_MARKER}{name}");
+    let start = sql
+        .find(&header)
+        .with_context(|| format!("no `{header}` section in {GIWA_SCHEMA}"))?;
+    let body = &sql[start + header.len()..];
+    let end = body.find(SECTION_MARKER).unwrap_or(body.len());
+    Ok(body[..end].to_string())
 }
 
 /// Insert a minimal `token` row with the given creator. Fills required
@@ -157,9 +141,9 @@ pub async fn insert_token(pool: &PgPool, token_id: &str, creator: &str) -> Resul
         r#"
         INSERT INTO token (
             token_id, name, symbol, image_uri, creator,
-            transaction_hash, total_supply, created_at, version
+            transaction_hash, total_supply, created_at
         )
-        VALUES ($1, 'Test Token', 'TT', 'uri', $2, 'tx_hash', 1000000::numeric, 0, 'V1')
+        VALUES ($1, 'Test Token', 'TT', 'uri', $2, 'tx_hash', 1000000::numeric, 0)
         "#,
     )
     .bind(token_id)
@@ -660,7 +644,6 @@ pub async fn call_batch_insert_tokens_and_markets(
     let tx_indices = vec![tx_index];
     let reserve_quotes = vec![virtual_native];
     let reserve_tokens = vec![virtual_token];
-    let versions = vec!["V2"];
     let quote_ids = vec![quote_id];
 
     sqlx::query(observer::db::postgres::controller::token::BATCH_INSERT_TOKENS_AND_MARKETS_SQL)
@@ -686,9 +669,8 @@ pub async fn call_batch_insert_tokens_and_markets(
         .bind(&tx_indices)
         .bind(&reserve_quotes)
         .bind(&reserve_tokens)
-        .bind(&versions)
         .bind(&quote_ids)
-        .bind(quote_id) // $25
+        .bind(quote_id) // $24
         .execute(pool)
         .await
         .context("failed to execute BATCH_INSERT_TOKENS_AND_MARKETS_SQL")?;
@@ -1157,7 +1139,7 @@ pub async fn count_lp_collect(pool: &PgPool, token_id: &str) -> Result<i64> {
 }
 
 // ============================================================================
-// Group C helpers: fee, reward, distributor, point
+// Group C helpers: fee
 // ============================================================================
 
 /// Call `HANDLE_SET_FEE_PROTOCOL_SQL` with scalar params.
@@ -1316,95 +1298,6 @@ pub async fn get_fee_aggregate(
     .await
     .context("failed to read fee aggregate row")?;
     Ok(row)
-}
-
-/// Call `BATCH_INSERT_POINTS_SQL` with array params.
-#[allow(clippy::too_many_arguments)]
-pub async fn call_batch_insert_points(
-    pool: &PgPool,
-    account_ids: &[&str],
-    point_types: &[&str],
-    values: &[bigdecimal::BigDecimal],
-    transaction_hashes: &[&str],
-    tx_indexes: &[i32],
-    log_indexes: &[i32],
-    created_ats: &[i64],
-) -> Result<()> {
-    sqlx::query(observer::db::postgres::controller::point::BATCH_INSERT_POINTS_SQL)
-        .bind(account_ids)
-        .bind(point_types)
-        .bind(values)
-        .bind(transaction_hashes)
-        .bind(tx_indexes)
-        .bind(log_indexes)
-        .bind(created_ats)
-        .execute(pool)
-        .await
-        .context("failed to execute BATCH_INSERT_POINTS_SQL")?;
-    Ok(())
-}
-
-/// Call `BATCH_INSERT_GRADUATE_POINTS_SQL` with array params.
-#[allow(clippy::too_many_arguments)]
-pub async fn call_batch_insert_graduate_points(
-    pool: &PgPool,
-    token_ids: &[&str],
-    transaction_hashes: &[&str],
-    tx_indexes: &[i32],
-    log_indexes: &[i32],
-    values: &[bigdecimal::BigDecimal],
-    created_ats: &[i64],
-) -> Result<()> {
-    sqlx::query(observer::db::postgres::controller::point::BATCH_INSERT_GRADUATE_POINTS_SQL)
-        .bind(token_ids)
-        .bind(transaction_hashes)
-        .bind(tx_indexes)
-        .bind(log_indexes)
-        .bind(values)
-        .bind(created_ats)
-        .execute(pool)
-        .await
-        .context("failed to execute BATCH_INSERT_GRADUATE_POINTS_SQL")?;
-    Ok(())
-}
-
-/// Count `point_history` rows for a (account_id, transaction_hash, tx_index, log_index) PK.
-pub async fn count_point_history(
-    pool: &PgPool,
-    account_id: &str,
-    transaction_hash: &str,
-    tx_index: i32,
-    log_index: i32,
-) -> Result<i64> {
-    let row: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COUNT(*) FROM point_history
-        WHERE account_id = $1 AND transaction_hash = $2 AND tx_index = $3 AND log_index = $4
-        "#,
-    )
-    .bind(account_id)
-    .bind(transaction_hash)
-    .bind(tx_index)
-    .bind(log_index)
-    .fetch_one(pool)
-    .await
-    .context("failed to count point_history rows")?;
-    Ok(row.0)
-}
-
-/// Count all `point_history` rows for an account.
-pub async fn count_point_history_for_account(
-    pool: &PgPool,
-    account_id: &str,
-) -> Result<i64> {
-    let row: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM point_history WHERE account_id = $1",
-    )
-    .bind(account_id)
-    .fetch_one(pool)
-    .await
-    .context("failed to count point_history rows for account")?;
-    Ok(row.0)
 }
 
 /// Execute `GET_FALLBACK_PRICE_SQL` directly and return the single price

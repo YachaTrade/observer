@@ -8,7 +8,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     db::postgres::{PostgresDatabase, controller::token::TokenController},
-    types::v1::curve::TokenMetadata,
+    types::legacy_curve::TokenMetadata,
 };
 
 const REQUEST_TIMEOUT_SECS: u64 = 10;

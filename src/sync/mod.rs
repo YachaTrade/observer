@@ -6,6 +6,8 @@ pub enum EventType {
     Curve,
     Dex,
     LpManager,
+    Vault,
+    VaultRegistry,
     Token,
     Price,
     PriceUsd,
@@ -17,17 +19,21 @@ impl EventType {
             EventType::Curve => "curve",
             EventType::Dex => "dex",
             EventType::LpManager => "lp_manager",
+            EventType::Vault => "vault",
+            EventType::VaultRegistry => "vault_registry",
             EventType::Token => "token",
             EventType::Price => "price",
             EventType::PriceUsd => "price_usd",
         }
     }
 
-    pub fn all() -> [EventType; 6] {
+    pub fn all() -> [EventType; 8] {
         [
             EventType::Curve,
             EventType::Dex,
             EventType::LpManager,
+            EventType::Vault,
+            EventType::VaultRegistry,
             EventType::Token,
             EventType::Price,
             EventType::PriceUsd,
@@ -54,11 +60,20 @@ mod tests {
     use super::EventType;
 
     #[test]
-    fn giwa_event_types_are_exactly_the_six_generic_streams() {
+    fn giwa_event_types_are_exactly_the_eight_generic_streams() {
         let names: Vec<&str> = EventType::all().iter().map(EventType::as_str).collect();
         assert_eq!(
             names,
-            vec!["curve", "dex", "lp_manager", "token", "price", "price_usd"]
+            vec![
+                "curve",
+                "dex",
+                "lp_manager",
+                "vault",
+                "vault_registry",
+                "token",
+                "price",
+                "price_usd",
+            ]
         );
     }
 }
