@@ -4,7 +4,7 @@ use bigdecimal::RoundingMode;
 
 use sqlx::types::BigDecimal;
 
-use crate::types::v1::curve::{CreateCurve, TokenMetadata};
+use crate::types::legacy_curve::{CreateCurve, TokenMetadata};
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Token {

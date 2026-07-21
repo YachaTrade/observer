@@ -9,10 +9,14 @@ use tracing::error;
 
 pub mod common;
 pub mod core;
+pub mod curve;
+pub mod dex;
 pub mod error;
 pub mod handler;
-pub mod v1;
-pub mod v2;
+pub mod lp_manager;
+pub(crate) mod usd_enrich;
+pub mod vault;
+pub mod vault_registry;
 
 pub async fn get_block_timestamp(client: &RpcClient, block_number: u64) -> Result<u64> {
     let redis = RedisDatabase::instance()?;

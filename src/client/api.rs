@@ -49,7 +49,7 @@ impl RpcClient {
 
         match block {
             Some(b) => Ok(b.header.timestamp),
-            None => Ok(chrono::Utc::now().timestamp() as u64),
+            None => Err(anyhow::anyhow!("Block {} not found", block_number)),
         }
     }
 

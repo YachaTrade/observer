@@ -1,4 +1,4 @@
-use crate::types::v1::curve::{Buy, CreateCurve, Sell};
+use crate::types::legacy_curve::{Buy, CreateCurve, Sell};
 use bigdecimal::BigDecimal;
 
 #[derive(Debug, Clone)]

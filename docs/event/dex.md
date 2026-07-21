@@ -5,13 +5,13 @@
 - **Deployment addresses**: `DEX_FACTORY`, `DEX_ROUTER`
 - **Dependency**: Curve
 
-> Implementation provenance: the active Dex stream uses the v1 Capricorn concentrated-liquidity pool and router ABIs.
+> Implementation provenance: the active Dex stream uses GIWA canonical Uniswap V3 pools and GiwaRouter Buy/Sell events where `graduated=true`.
 
-Dex processes known token pools. Events are ordered by block number, transaction index, and log index, grouped by token where applicable, and then written in batches.
+Dex processes known canonical Uniswap V3 token pools and accepts router events only from the configured GiwaRouter address. Events are ordered by block number, transaction index, and log index, grouped by token where applicable, and then written in batches.
 
 ## Swap
 
-Pool Swap provides `sender`, signed token deltas, `sqrtPriceX96`, liquidity, and tick. Stream processing:
+Canonical Uniswap V3 pool Swap provides `sender`, signed token deltas, `sqrtPriceX96`, liquidity, and tick. Stream processing:
 
 1. rejects pools outside the token-pool whitelist;
 2. loads the cached token pair;
@@ -31,4 +31,4 @@ SetFeeProtocol records the old and new protocol fee values for each side of a wh
 
 ## Router buy and sell
 
-Router events are accepted only from `DEX_ROUTER`. They provide the user, token, input, and output amounts. Receive processing writes Dex points and fee history; point and fee calculations use `DEX_ROUTER_FEE_RATE`.
+GiwaRouter Buy/Sell events are accepted only from `DEX_ROUTER`. Buy identifies the user as `buyer`; Sell identifies the user as `seller`. Both provide the token, input and output amounts, and a `graduated` flag. The stream processes only `graduated=true`; `graduated=false` represents bonding-curve trades already indexed by the Curve handler and is skipped to prevent duplicate storage. Receive processing writes Dex points and fee history; point and fee calculations use `DEX_ROUTER_FEE_RATE`.

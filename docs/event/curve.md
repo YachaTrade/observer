@@ -5,7 +5,7 @@
 - **Deployment address**: `BONDING_CURVE`
 - **Dependency**: Price
 
-> Implementation provenance: the active Curve stream uses `abi/v2/BondingCurve.json`.
+> Implementation provenance: the active Curve stream uses `abi/BondingCurve.json`.
 
 Curve events are sorted by block number, transaction index, and log index, grouped by token, and written in batches.
 

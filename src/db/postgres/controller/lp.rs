@@ -4,7 +4,7 @@ use crate::{
     config::DEFAULT_DELAY,
     db::postgres::PostgresDatabase,
     measure_postgres,
-    types::v1::lp_manager::{Allocate, Collect},
+    types::lp_manager::{Allocate, Collect},
 };
 
 use anyhow::Result;

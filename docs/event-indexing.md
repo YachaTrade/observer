@@ -1,33 +1,37 @@
 # Event indexing guide
 
-Observer indexes six public GIWA event streams. Events within a batch are ordered by `(block_number, transaction_index, log_index)` before receive-side processing.
+Observer indexes eight public GIWA event streams. Events within a batch are ordered by `(block_number, transaction_index, log_index)` before receive-side processing.
 
 ## Active streams
 
 | Event | Contract implementation | Checkpoint |
 | --- | --- | --- |
 | Curve | v2 BondingCurve ABI | `curve` |
-| Dex | v1 Capricorn DEX ABI | `dex` |
+| Dex | GIWA canonical Uniswap V3 pool + GiwaRouter Buy/Sell(graduated) | `dex` |
 | LpManager | v1 LPManager ABI | `lp_manager` |
+| Vault | v2 vault ABIs | `vault` |
+| VaultRegistry | v2 VaultRegistry ABI | `vault_registry` |
 | Token | common ERC-20 stream | `token` |
 | Price | common quote-price stream | `price` |
 | PriceUsd | common token-USD stream | `price_usd` |
 
-Versioned handler names are implementation details. Runtime coordination, checkpoints, and operational metrics use the generic Event and Checkpoint values above.
+Contract implementation versions only record ABI provenance. Runtime handlers, coordination, checkpoints, and operational metrics use the generic Event and Checkpoint values above.
 
 ## Stream and receive ordering
 
 ```text
 Price --------> Curve --------> Dex
                     |----------> LpManager
+                    |----------> Vault
                     |----------> Token (strict wait)
 
 PriceUsd (independent)
+VaultRegistry (independent, admin-driven)
 ```
 
-- Price and PriceUsd do not wait for another event stream.
+- Price, PriceUsd, and VaultRegistry do not wait for another event stream.
 - Curve waits for Price with a one-block dependency offset.
-- Dex and LpManager wait for Curve with a one-block dependency offset.
+- Dex, LpManager, and Vault wait for Curve with a one-block dependency offset.
 - Token strictly waits for Curve and remains behind the Curve stream.
 
 ## Deployment variables
@@ -40,6 +44,13 @@ DEX_FACTORY=0x...
 DEX_ROUTER=0x...
 LP_MANAGER=0x...
 WETH=0x4200000000000000000000000000000000000006
+# Optional vault and registry contracts
+BURN_VAULT=0x...
+LP_VAULT=0x...
+CREATOR_FEE_VAULT=0x...
+GIFT_VAULT=0x...
+DIVIDEND_VAULT=0x...
+VAULT_REGISTRY=0x...
 MAIN_RPC_URL=...
 SUB_RPC_URL_1=...
 SUB_RPC_URL_2=...
@@ -52,7 +63,7 @@ DEX_ROUTER_FEE_RATE=...
 
 ## Persistence contract
 
-GIWA event processing writes `token.version='V2'` and `token.chain='GIWA'`. Market values are `CURVE` while a token trades on the bonding curve and `DEX` after graduation or for Dex trades. Curve fee history uses `curve_buy` and `curve_sell`.
+Market values are `CURVE` while a token trades on the bonding curve and `DEX` after graduation or for Dex trades. Curve fee history uses `curve_buy` and `curve_sell`.
 
 Existing MON rows and existing versioned database values are intentionally unchanged. No historical row rewrite is part of this runtime selection.
 
@@ -66,7 +77,7 @@ See [Curve](event/curve.md) for fields and processing detail.
 
 ### Dex
 
-Dex indexes concentrated-liquidity pool Swap, Mint, Burn, and SetFeeProtocol events plus router buy/sell events. Only known token pools are processed. Swap parsing synthesizes reserve/price state used by receive-side swap, market, chart, point, and fee-history writes.
+Dex indexes Swap, Mint, Burn, and SetFeeProtocol events from GIWA canonical Uniswap V3 pools plus GiwaRouter Buy/Sell events where `graduated=true`. Router events with `graduated=false` remain the Curve handler's responsibility and are skipped to prevent duplicate trades. Only known token pools are processed. Swap parsing synthesizes reserve/price state used by receive-side swap, market, chart, point, and fee-history writes.
 
 See [Dex](event/dex.md) for fields and processing detail.
 
@@ -75,6 +86,18 @@ See [Dex](event/dex.md) for fields and processing detail.
 LpManager indexes allocation and collection events from `LP_MANAGER`. Collection processing reads treasury fee rates from the contract and persists the calculated creator, foundation, and community portions.
 
 See [LpManager](event/lp-manager.md) for fields and processing detail.
+
+### Vault
+
+Vault multiplexes BurnVault, LPVault, CreatorFeeVault, GiftVault, and DividendVault logs. It records burns, liquidity injections, creator-fee and gift lifecycle activity, and dividend setup, deposit, conversion, root, and claim activity after Curve state is available. Each vault address is optional; an unconfigured contract contributes no logs to the stream.
+
+See [Vault](event/vault.md) and [Dividend](event/dividend.md) for fields and processing detail.
+
+### VaultRegistry
+
+VaultRegistry independently indexes admin-driven Register and Deactivate events. Registration also resolves allowlisted off-chain vault metadata when available. The registry address is optional, so deployments without it continue running.
+
+See [VaultRegistry](event/vault_registry.md) for fields and processing detail.
 
 ### Token
 

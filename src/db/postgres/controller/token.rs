@@ -11,7 +11,7 @@ use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 /// SQL for batch inserting tokens, markets, and price_history rows via a
-/// CTE chain. Params $1-$24 are UNNEST arrays, $25 is the WNATIVE quote_id
+/// CTE chain. Params $1-$23 are UNNEST arrays, $24 is the WNATIVE quote_id
 /// used to look up the latest native USD price.
 pub const BATCH_INSERT_TOKENS_AND_MARKETS_SQL: &str = r#"
                     WITH data AS (
@@ -20,31 +20,31 @@ pub const BATCH_INSERT_TOKENS_AND_MARKETS_SQL: &str = r#"
                             $6::text[], $7::text[], $8::text[], $9::text[], $10::boolean[],
                             $11::boolean[], $12::numeric[], $13::bigint[], $14::numeric[], $15::text[],
                             $16::bigint[], $17::bigint[], $18::text[], $19::int[], $20::int[],
-                            $21::numeric[], $22::numeric[], $23::text[], $24::text[]
+                            $21::numeric[], $22::numeric[], $23::text[]
                         ) AS t(
                             token_id, name, symbol, creator, description,
                             twitter, telegram, website, image_uri, is_nsfw,
                             is_graduated, total_supply, created_at, price, market_type,
                             latest_trade_at, block_number, transaction_hash, log_index, tx_index,
-                            reserve_quote, reserve_token, version, quote_id
+                            reserve_quote, reserve_token, quote_id
                         )
                     ),
                     insert_token AS (
                         INSERT INTO token (
                             token_id, name, symbol, creator, description, twitter, telegram, website,
                             image_uri, is_nsfw, is_graduated, total_supply, created_at,
-                            transaction_hash, version, chain
+                            transaction_hash
                         )
                         SELECT
                             token_id, name, symbol, creator, description, twitter, telegram, website,
                             image_uri, is_nsfw, is_graduated, total_supply, created_at,
-                            transaction_hash, version, 'GIWA'
+                            transaction_hash
                         FROM data
                         ON CONFLICT (token_id) DO NOTHING
                     ),
                     latest_native_price AS (
                         SELECT COALESCE(
-                            (SELECT p.price FROM price p WHERE p.quote_id = $25 ORDER BY p.block_number DESC LIMIT 1),
+                            (SELECT p.price FROM price p WHERE p.quote_id = $24 ORDER BY p.block_number DESC LIMIT 1),
                             0
                         ) AS native_usd
                     ),
@@ -83,7 +83,6 @@ pub struct TokenBatchData {
     pub website: Option<String>,
     pub image_uri: String,
     pub is_nsfw: bool,
-    pub version: String,
     pub market_type: String, // "CURVE" or "DEX"
     pub quote_id: String, // quote token address (default: WMON)
     pub virtual_native: String,
@@ -108,7 +107,7 @@ impl TokenController {
     pub async fn fetch_metadata(
         &self,
         metadata_url: &str,
-    ) -> Result<crate::types::v1::curve::TokenMetadata> {
+    ) -> Result<crate::types::legacy_curve::TokenMetadata> {
         let row = sqlx::query!(
             r#"
             SELECT name, symbol, description, image_url, website, twitter, telegram, is_nsfw
@@ -124,7 +123,7 @@ impl TokenController {
         match row {
             Some(r) => {
                 info!("✅ Metadata found in DB: {}", metadata_url);
-                Ok(crate::types::v1::curve::TokenMetadata {
+                Ok(crate::types::legacy_curve::TokenMetadata {
                     description: r.description,
                     twitter: r.twitter,
                     telegram: r.telegram,
@@ -217,7 +216,6 @@ impl TokenController {
         let mut tx_indices = Vec::new();
         let mut reserve_quotes = Vec::new();
         let mut reserve_tokens = Vec::new();
-        let mut versions = Vec::new();
         let mut quote_ids = Vec::new();
 
         for data in batch {
@@ -254,7 +252,6 @@ impl TokenController {
             tx_indices.push(data.tx_index);
             reserve_quotes.push(data.virtual_native.clone());
             reserve_tokens.push(data.virtual_token.clone());
-            versions.push(data.version.clone());
             quote_ids.push(data.quote_id.clone());
         }
 
@@ -282,11 +279,10 @@ impl TokenController {
                 .bind(&transaction_hashes)  // $18
                 .bind(&log_indices)         // $19
                 .bind(&tx_indices)          // $20
-                .bind(&reserve_quotes)     // $21
+                .bind(&reserve_quotes)      // $21
                 .bind(&reserve_tokens)      // $22
-                .bind(&versions)            // $23
-                .bind(&quote_ids)           // $24
-                .bind(&*crate::config::WNATIVE_ADDRESS)  // $25 (WMON for latest_native_price)
+                .bind(&quote_ids)           // $23
+                .bind(&*crate::config::WNATIVE_ADDRESS)  // $24 (WNATIVE for latest_native_price)
                 .execute(&self.db.pool)
                 .await
             });

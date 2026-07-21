@@ -31,7 +31,7 @@ fn dependency_policy(event_type: EventType) -> DependencyPolicy {
             wait: DependencyWait::Timed,
             dependencies: &[(EventType::Price, 1)],
         },
-        EventType::Dex | EventType::LpManager => DependencyPolicy {
+        EventType::Dex | EventType::LpManager | EventType::Vault => DependencyPolicy {
             wait: DependencyWait::Timed,
             dependencies: &[(EventType::Curve, 1)],
         },
@@ -39,7 +39,7 @@ fn dependency_policy(event_type: EventType) -> DependencyPolicy {
             wait: DependencyWait::Strict,
             dependencies: &[(EventType::Curve, 1)],
         },
-        EventType::Price | EventType::PriceUsd => DependencyPolicy {
+        EventType::Price | EventType::PriceUsd | EventType::VaultRegistry => DependencyPolicy {
             wait: DependencyWait::None,
             dependencies: &[],
         },
@@ -242,6 +242,17 @@ mod tests {
     }
 
     #[test]
+    fn vault_waits_for_curve_with_offset_one() {
+        assert_eq!(
+            dependency_policy(EventType::Vault),
+            DependencyPolicy {
+                wait: DependencyWait::Timed,
+                dependencies: &[(EventType::Curve, 1)],
+            }
+        );
+    }
+
+    #[test]
     fn token_strictly_waits_for_curve_only() {
         assert_eq!(
             dependency_policy(EventType::Token),
@@ -267,6 +278,17 @@ mod tests {
     fn price_usd_is_independent() {
         assert_eq!(
             dependency_policy(EventType::PriceUsd),
+            DependencyPolicy {
+                wait: DependencyWait::None,
+                dependencies: &[],
+            }
+        );
+    }
+
+    #[test]
+    fn vault_registry_is_independent() {
+        assert_eq!(
+            dependency_policy(EventType::VaultRegistry),
             DependencyPolicy {
                 wait: DependencyWait::None,
                 dependencies: &[],
