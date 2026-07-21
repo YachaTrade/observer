@@ -12,7 +12,6 @@ pub enum DexEvent {
     RouterSell(DexRouterSell),
     Mint(DexMint),
     Burn(DexBurn),
-    SetFeeProtocol(SetFeeProtocol),
 }
 
 impl DexEvent {
@@ -25,7 +24,6 @@ impl DexEvent {
             Self::RouterSell(event) => event.block_number,
             Self::Mint(event) => event.block_number,
             Self::Burn(event) => event.block_number,
-            Self::SetFeeProtocol(event) => event.block_number,
         }
     }
 
@@ -38,7 +36,6 @@ impl DexEvent {
             Self::RouterSell(event) => event.log_index,
             Self::Mint(event) => event.log_index,
             Self::Burn(event) => event.log_index,
-            Self::SetFeeProtocol(event) => event.log_index,
         }
     }
 
@@ -51,7 +48,6 @@ impl DexEvent {
             Self::RouterSell(event) => event.transaction_index,
             Self::Mint(event) => event.transaction_index,
             Self::Burn(event) => event.transaction_index,
-            Self::SetFeeProtocol(event) => event.transaction_index,
         }
     }
 
@@ -64,7 +60,6 @@ impl DexEvent {
             Self::RouterSell(event) => Some(event.token.as_str()),
             Self::Mint(event) => Some(event.token_id.as_str()),
             Self::Burn(event) => Some(event.token_id.as_str()),
-            Self::SetFeeProtocol(_) => None, // SetFeeProtocol has no token
         }
     }
 }
@@ -198,10 +193,4 @@ pub struct SetFeeProtocol {
     pub block_number: u64,
     pub transaction_index: u64,
     pub log_index: u64,
-}
-
-impl From<SetFeeProtocol> for DexEvent {
-    fn from(value: SetFeeProtocol) -> Self {
-        DexEvent::SetFeeProtocol(value)
-    }
 }

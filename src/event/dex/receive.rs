@@ -12,23 +12,20 @@ use crate::{
             controller::{
                 account::AccountController,
                 chart::{ChartBatchData, ChartController},
-                fee::FeeController,
                 market::{DexSyncData, MarketController},
                 mint::{BurnBatchData, MintBatchData, MintController},
-                point::{PointBatchData, PointController},
                 swap::{SwapBatchData, SwapController},
             },
         },
     },
     sync::{EventType, receive::RECEIVE_MANAGER},
-    types::dex::{DexEvent, SetFeeProtocol},
-    types::fee::{FeeHistoryEvent, FeeType},
+    types::dex::DexEvent,
     utils::to_big_decimal,
 };
 
 use anyhow::Result;
 
-use crate::config::{DEX_ROUTER_FEE_RATE, WNATIVE_ADDRESS, get_quote_decimals};
+use crate::config::{WNATIVE_ADDRESS, get_quote_decimals};
 use crate::metrics::MonitoredReceiver;
 use tracing::{error, instrument, warn};
 
@@ -62,39 +59,8 @@ pub async fn receive_events(
         let event_count = events.len();
         total_events += event_count;
 
-        // Separate SetFeeProtocol events (they have no token)
-        let (set_fee_events, token_events): (Vec<_>, Vec<_>) = events
-            .into_iter()
-            .partition(|e| matches!(e, DexEvent::SetFeeProtocol(_)));
-
-        // Process SetFeeProtocol events separately
-        if !set_fee_events.is_empty() {
-            let set_fee_protocols: Vec<SetFeeProtocol> = set_fee_events
-                .into_iter()
-                .filter_map(|e| {
-                    if let DexEvent::SetFeeProtocol(fee) = e {
-                        Some(fee)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            let fee_controller = FeeController::new(db.clone());
-            if let Err(e) = fee_controller
-                .batch_insert_set_fee_protocols(&set_fee_protocols)
-                .await
-            {
-                error!(
-                    "[DEX] Failed to batch insert {} SetFeeProtocol events: {:?}",
-                    set_fee_protocols.len(),
-                    e
-                );
-            }
-        }
-
         // Group events by token and process in parallel
-        let events_by_token = group_events_by_token(token_events);
+        let events_by_token = group_events_by_token(events);
         let token_count = events_by_token.len();
 
         // Process events for each token sequentially, but different tokens in parallel
@@ -215,10 +181,8 @@ async fn process_token_events(
 
     // 배치 데이터를 수집할 벡터
     let mut swap_batch = Vec::new();
-    let mut point_batch = Vec::new();
     let mut mint_batch = Vec::new();
     let mut burn_batch = Vec::new();
-    let mut fee_batch: Vec<FeeHistoryEvent> = Vec::new();
 
     // transaction_hash별로 Chart 데이터를 모을 HashMap
     let mut chart_map: HashMap<String, ChartBatchData> = HashMap::new();
@@ -322,27 +286,6 @@ async fn process_token_events(
                 if let Some(chart_data) = chart_map.get_mut(&**buy.transaction_hash) {
                     chart_data.volume = (*buy.amount_in).clone();
                 }
-
-                // Fee 데이터 추가 (Pool SwapBuy: fee = amount_in * 1%, 이벤트의 amount_in은 fee 포함)
-                let fee_native = &*buy.amount_in / BigDecimal::from(100);
-                let fee_usd = if let Some(price) = &price_opt {
-                    (&fee_native / get_quote_decimals(&WNATIVE_ADDRESS)) * &**price
-                } else {
-                    BigDecimal::from(0)
-                };
-
-                fee_batch.push(FeeHistoryEvent {
-                    transaction_hash: Arc::clone(&buy.transaction_hash),
-                    log_index: buy.log_index,
-                    account_id: Arc::clone(&buy.tx_sender),
-                    token_id: Arc::clone(&buy.token),
-                    quote_amount: Arc::new(fee_native),
-                    usd_amount: Arc::new(fee_usd),
-                    fee_type: FeeType::SwapBuy,
-                    block_number: buy.block_number,
-                    tx_index: buy.transaction_index,
-                    block_timestamp: buy.block_timestamp,
-                });
             }
             DexEvent::SwapSell(sell) => {
                 // Account 수집 (tx_sender 사용)
@@ -401,153 +344,14 @@ async fn process_token_events(
                 if let Some(chart_data) = chart_map.get_mut(&**sell.transaction_hash) {
                     chart_data.volume = (*sell.amount_out).clone();
                 }
-
-                // Fee 데이터 추가 (Pool SwapSell: fee = amount_out * 1%)
-                let fee_native = &*sell.amount_out / BigDecimal::from(100);
-                let fee_usd = if let Some(price) = &price_opt {
-                    (&fee_native / get_quote_decimals(&WNATIVE_ADDRESS)) * &**price
-                } else {
-                    BigDecimal::from(0)
-                };
-
-                fee_batch.push(FeeHistoryEvent {
-                    transaction_hash: Arc::clone(&sell.transaction_hash),
-                    log_index: sell.log_index,
-                    account_id: Arc::clone(&sell.tx_sender),
-                    token_id: Arc::clone(&sell.token),
-                    quote_amount: Arc::new(fee_native),
-                    usd_amount: Arc::new(fee_usd),
-                    fee_type: FeeType::SwapSell,
-                    block_number: sell.block_number,
-                    tx_index: sell.transaction_index,
-                    block_timestamp: sell.block_timestamp,
-                });
             }
             DexEvent::RouterBuy(buy) => {
                 // Account 수집 (tx_sender 사용)
                 account_ids.insert((*buy.tx_sender).clone());
-
-                // Point 데이터 추가: value = (quote_amount * price * DEX_ROUTER_FEE_RATE) / 100
-                let block_num = buy.block_number as i64;
-                let price_opt = match cache_manager.get_price(block_num).await {
-                    Some(price) => Some(Arc::clone(&price)),
-                    None => match cache_manager.get_latest_price_before(block_num).await {
-                        Some(price) => Some(Arc::clone(&price)),
-                        None => match cache_manager.get_latest_price().await {
-                            Some(price) => Some(Arc::clone(&price)),
-                            None => cache_manager
-                                .get_price_from_db(block_num)
-                                .await
-                                .map(Arc::new),
-                        },
-                    },
-                };
-
-                let point_value = if let Some(price) = &price_opt {
-                    ((&*buy.amount_in / get_quote_decimals(&WNATIVE_ADDRESS))
-                        * &**price
-                        * &*DEX_ROUTER_FEE_RATE)
-                        / BigDecimal::from(100)
-                } else {
-                    error!("[DEX] No price found for block {} in router buy", block_num);
-                    BigDecimal::from(0)
-                };
-
-                point_batch.push(PointBatchData {
-                    account_id: Arc::clone(&buy.tx_sender),
-                    point_type: "DEX",
-                    value: point_value,
-                    transaction_hash: Arc::clone(&buy.transaction_hash),
-                    tx_index: buy.transaction_index as i32,
-                    log_index: buy.log_index as i32,
-                    created_at: buy.block_timestamp as i64,
-                });
-
-                // Fee 데이터 추가 (DexRouterBuy: amount_in * 0.5%)
-                let fee_native = (&*buy.amount_in * &*DEX_ROUTER_FEE_RATE) / BigDecimal::from(100);
-                let fee_usd = if let Some(price) = &price_opt {
-                    (&fee_native / get_quote_decimals(&WNATIVE_ADDRESS)) * &**price
-                } else {
-                    BigDecimal::from(0)
-                };
-
-                fee_batch.push(FeeHistoryEvent {
-                    transaction_hash: Arc::clone(&buy.transaction_hash),
-                    log_index: buy.log_index,
-                    account_id: Arc::clone(&buy.tx_sender),
-                    token_id: Arc::clone(&buy.token),
-                    quote_amount: Arc::new(fee_native),
-                    usd_amount: Arc::new(fee_usd),
-                    fee_type: FeeType::DexRouterBuy,
-                    block_number: buy.block_number,
-                    tx_index: buy.transaction_index,
-                    block_timestamp: buy.block_timestamp,
-                });
             }
             DexEvent::RouterSell(sell) => {
                 // Account 수집 (tx_sender 사용)
                 account_ids.insert((*sell.tx_sender).clone());
-
-                // Point 데이터 추가: value = (quote_amount * price * DEX_ROUTER_FEE_RATE) / 100
-                let block_num = sell.block_number as i64;
-                let native_price = match cache_manager.get_price(block_num).await {
-                    Some(price) => Some(Arc::clone(&price)),
-                    None => match cache_manager.get_latest_price_before(block_num).await {
-                        Some(price) => Some(Arc::clone(&price)),
-                        None => match cache_manager.get_latest_price().await {
-                            Some(price) => Some(Arc::clone(&price)),
-                            None => cache_manager
-                                .get_price_from_db(block_num)
-                                .await
-                                .map(Arc::new),
-                        },
-                    },
-                };
-
-                let point_value = if let Some(ref price) = native_price {
-                    ((&*sell.amount_out / get_quote_decimals(&WNATIVE_ADDRESS))
-                        * &**price
-                        * &*DEX_ROUTER_FEE_RATE)
-                        / BigDecimal::from(100)
-                } else {
-                    error!(
-                        "[DEX] No price found for block {} in router sell",
-                        block_num
-                    );
-                    BigDecimal::from(0)
-                };
-
-                point_batch.push(PointBatchData {
-                    account_id: Arc::clone(&sell.tx_sender),
-                    point_type: "DEX",
-                    value: point_value,
-                    transaction_hash: Arc::clone(&sell.transaction_hash),
-                    tx_index: sell.transaction_index as i32,
-                    log_index: sell.log_index as i32,
-                    created_at: sell.block_timestamp as i64,
-                });
-
-                // Fee 데이터 추가 (DexRouterSell: amount_out * 0.5%)
-                let fee_native =
-                    (&*sell.amount_out * &*DEX_ROUTER_FEE_RATE) / BigDecimal::from(100);
-                let fee_usd = if let Some(ref price) = native_price {
-                    (&fee_native / get_quote_decimals(&WNATIVE_ADDRESS)) * &**price
-                } else {
-                    BigDecimal::from(0)
-                };
-
-                fee_batch.push(FeeHistoryEvent {
-                    transaction_hash: Arc::clone(&sell.transaction_hash),
-                    log_index: sell.log_index,
-                    account_id: Arc::clone(&sell.tx_sender),
-                    token_id: Arc::clone(&sell.token),
-                    quote_amount: Arc::new(fee_native),
-                    usd_amount: Arc::new(fee_usd),
-                    fee_type: FeeType::DexRouterSell,
-                    block_number: sell.block_number,
-                    tx_index: sell.transaction_index,
-                    block_timestamp: sell.block_timestamp,
-                });
             }
             DexEvent::Mint(mint) => {
                 // Account 수집
@@ -589,10 +393,6 @@ async fn process_token_events(
                     log_index: burn.log_index as i32,
                 });
             }
-            DexEvent::SetFeeProtocol(_) => {
-                // SetFeeProtocol events are handled separately before grouping by token
-                // This branch should never be reached
-            }
         }
     }
 
@@ -601,9 +401,7 @@ async fn process_token_events(
     let market_controller = MarketController::new(db.clone());
     let swap_controller = SwapController::new(db.clone());
     let chart_controller = ChartController::new(db.clone());
-    let point_controller = PointController::new(db.clone());
     let mint_controller = MintController::new(db.clone());
-    let fee_controller = FeeController::new(db.clone());
 
     let account_list: Vec<String> = account_ids.into_iter().collect();
     let chart_batch: Vec<ChartBatchData> = chart_map.into_values().collect();
@@ -713,15 +511,6 @@ async fn process_token_events(
         }
     };
 
-    // Point insert
-    let point_operation = async {
-        if !point_batch.is_empty() {
-            point_controller.batch_insert_points(&point_batch).await
-        } else {
-            Ok(())
-        }
-    };
-
     // Mint insert
     let mint_operation = async {
         if !mint_batch.is_empty() {
@@ -735,15 +524,6 @@ async fn process_token_events(
     let burn_operation = async {
         if !burn_batch.is_empty() {
             mint_controller.batch_insert_burns(&burn_batch).await
-        } else {
-            Ok(())
-        }
-    };
-
-    // Fee insert
-    let fee_operation = async {
-        if !fee_batch.is_empty() {
-            fee_controller.batch_insert_fee_history(&fee_batch).await
         } else {
             Ok(())
         }
@@ -765,13 +545,11 @@ async fn process_token_events(
     }
 
     // 3. 나머지 병렬 처리 (서로 독립적)
-    let (swap_result, chart_result, point_result, mint_result, burn_result, fee_result) = tokio::join!(
+    let (swap_result, chart_result, mint_result, burn_result) = tokio::join!(
         swap_operation,
         chart_operation,
-        point_operation,
         mint_operation,
-        burn_operation,
-        fee_operation
+        burn_operation
     );
 
     if let Err(e) = swap_result {
@@ -783,12 +561,6 @@ async fn process_token_events(
     if let Err(e) = chart_result {
         error!(
             "[DEX] Chart batch operation failed for token {}: {:#}",
-            token, e
-        );
-    }
-    if let Err(e) = point_result {
-        error!(
-            "[DEX] Point batch operation failed for token {}: {:#}",
             token, e
         );
     }
@@ -804,13 +576,6 @@ async fn process_token_events(
             token, e
         );
     }
-    if let Err(e) = fee_result {
-        error!(
-            "[DEX] Fee batch operation failed for token {}: {:#}",
-            token, e
-        );
-    }
-
     Ok(())
 }
 
