@@ -17,7 +17,7 @@ GIWA observer를 더 lean하게: price_usd(DefiLlama), whitelist_token, treasury
 
 ## Outcome
 
-- (머지 시 작성)
+- 2026-07-22 `main`에 no-ff merge + push. 핵심 커밋 67f8ef9. 스키마 서브모듈 = giwa/migrations 25bf794(98테이블). 검증: 전체 스위트 통과(기존 결함 pool_batch_update_reserves 3 제외).
 
 ## 배포 의존성
 
