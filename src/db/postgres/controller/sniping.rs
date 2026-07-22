@@ -42,7 +42,7 @@ impl SnipingController {
         let tx_indices: Vec<i32> = data.iter().map(|d| d.tx_index).collect();
 
         retry_query("sniping_penalties", || async {
-            measure_postgres!("v2_batch_insert_sniping_penalties", {
+            measure_postgres!("batch_insert_sniping_penalties", {
                 sqlx::query(INSERT_SNIPING_PENALTIES_SQL)
                     .bind(&token_ids)
                     .bind(&buyers)

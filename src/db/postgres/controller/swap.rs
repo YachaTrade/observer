@@ -5,7 +5,7 @@ use std::{sync::Arc, time::Duration};
 use tokio::time::sleep;
 use tracing::{info, instrument, warn};
 
-use crate::config::DEFAULT_DELAY;
+use crate::config::{DEFAULT_DELAY, WNATIVE_ADDRESS};
 use crate::db::cache::CacheManager;
 
 use crate::db::postgres::PostgresDatabase;
@@ -137,7 +137,7 @@ impl SwapController {
 
             if let Ok(cache_manager) = CacheManager::instance() {
                 let cached_prices = cache_manager
-                    .get_prices_in_range(min_block, max_block)
+                    .get_prices_in_range_for_quote(&WNATIVE_ADDRESS, min_block, max_block)
                     .await;
                 if !cached_prices.is_empty() {
                     info!(
@@ -158,11 +158,11 @@ impl SwapController {
             if prices_in_range.is_empty() {
                 prices_in_range = match measure_postgres!("swap_get_prices_in_range", {
                     sqlx::query_as::<_, (i64, BigDecimal)>(GET_PRICES_FOR_RANGE_SQL)
-                    .bind(&*crate::config::WNATIVE_ADDRESS)
-                    .bind(min_block)
-                    .bind(max_block)
-                    .fetch_all(&self.db.pool)
-                    .await
+                        .bind(&*crate::config::WNATIVE_ADDRESS)
+                        .bind(min_block)
+                        .bind(max_block)
+                        .fetch_all(&self.db.pool)
+                        .await
                 }) {
                     Ok(prices) => {
                         info!(
@@ -208,7 +208,7 @@ impl SwapController {
 
                 if let Ok(cache_manager) = CacheManager::instance() {
                     fallback_price = cache_manager
-                        .get_latest_price_before(max_block)
+                        .get_latest_price_before_for_quote(&WNATIVE_ADDRESS, max_block)
                         .await
                         .map(|arc_price| (*arc_price).clone());
                     if fallback_price.is_some() {
@@ -220,9 +220,9 @@ impl SwapController {
                 if fallback_price.is_none() {
                     fallback_price = match measure_postgres!("swap_get_fallback_price", {
                         sqlx::query_as::<_, (BigDecimal,)>(GET_FALLBACK_PRICE_SQL)
-                        .bind(&*crate::config::WNATIVE_ADDRESS)
-                        .fetch_optional(&self.db.pool)
-                        .await
+                            .bind(&*crate::config::WNATIVE_ADDRESS)
+                            .fetch_optional(&self.db.pool)
+                            .await
                     }) {
                         Ok(Some(row)) => {
                             info!("[SWAP] Found fallback price in DB");

@@ -14,18 +14,17 @@ use tokio::time::sleep;
 use tokio::{task::JoinSet, time::Instant};
 use tracing::{error, info, instrument, warn};
 
+use crate::event::get_block_timestamp;
 use crate::{
     client::RpcClient,
     config::{BLOCK_BATCH_SIZE, DEX_ROUTER_ADDRESS, WNATIVE_ADDRESS},
     db::cache::CacheManager,
     sync::{BlockRange, EventType, stream::STREAM_MANAGER},
-    types::{
-        dex::{DexBurn, DexEvent, DexMint, DexRouterBuy, DexRouterSell, DexSync},
-        legacy_curve::{MarketType, Sell},
+    types::dex::{
+        DexBurn, DexEvent, DexMint, DexRouterBuy, DexRouterSell, DexSwapBuy, DexSwapSell, DexSync,
     },
     utils::to_big_decimal,
 };
-use crate::{event::get_block_timestamp, types::legacy_curve::Buy};
 
 use super::{DexEventChannel, receive::receive_events};
 
@@ -348,14 +347,13 @@ async fn parse_log(
             });
 
             let swap_event = if is_buy {
-                DexEvent::from(Buy {
+                DexEvent::from(DexSwapBuy {
                     sender: Arc::new(sender.clone()),
                     to: Some(Arc::new(recipient.to_string())),
                     amount_in: Arc::new(amount_in),
                     amount_out: Arc::new(amount_out),
                     token: Arc::new(token),
                     market: Arc::new(pool),
-                    market_type: MarketType::DEX,
                     transaction_hash: Arc::new(transaction_hash),
                     block_number,
                     block_timestamp,
@@ -364,14 +362,13 @@ async fn parse_log(
                     tx_sender: Arc::new(sender),
                 })
             } else {
-                DexEvent::from(Sell {
+                DexEvent::from(DexSwapSell {
                     sender: Arc::new(sender.clone()),
                     to: Some(Arc::new(recipient.to_string())),
                     amount_in: Arc::new(amount_in),
                     amount_out: Arc::new(amount_out),
                     token: Arc::new(token),
                     market: Arc::new(pool),
-                    market_type: MarketType::DEX,
                     transaction_hash: Arc::new(transaction_hash),
                     block_number,
                     block_timestamp,

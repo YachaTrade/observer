@@ -1,5 +1,4 @@
 pub mod controller;
-pub mod model;
 
 use once_cell::sync::OnceCell;
 use sqlx::postgres::PgPoolOptions;

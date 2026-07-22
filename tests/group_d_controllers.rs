@@ -28,14 +28,14 @@ async fn chart_insert_price_history_happy_path() -> Result<()> {
     let volume = BigDecimal::from_str("500")?;
 
     sqlx::query(observer::db::postgres::controller::chart::INSERT_PRICE_HISTORY_SQL)
-        .bind("0xToken01")    // $1 token_id
-        .bind(&price)         // $2 price
-        .bind(&volume)        // $3 volume
-        .bind(1000i64)        // $4 created_at
-        .bind(100i64)         // $5 block_number
-        .bind("0xTxHash01")   // $6 transaction_hash
-        .bind(0i32)           // $7 log_index — i32, not i64
-        .bind(0i32)           // $8 tx_index — i32, not i64
+        .bind("0xToken01") // $1 token_id
+        .bind(&price) // $2 price
+        .bind(&volume) // $3 volume
+        .bind(1000i64) // $4 created_at
+        .bind(100i64) // $5 block_number
+        .bind("0xTxHash01") // $6 transaction_hash
+        .bind(0i32) // $7 log_index — i32, not i64
+        .bind(0i32) // $8 tx_index — i32, not i64
         .execute(pool)
         .await?;
 
@@ -140,10 +140,7 @@ async fn chart_batch_insert_price_history_partial_duplicate() -> Result<()> {
         BigDecimal::from_str("0.0010000000")?,
         BigDecimal::from_str("0.0020000000")?,
     ];
-    let volumes = vec![
-        BigDecimal::from_str("10")?,
-        BigDecimal::from_str("20")?,
-    ];
+    let volumes = vec![BigDecimal::from_str("10")?, BigDecimal::from_str("20")?];
     let created_ats: Vec<i64> = vec![4000, 4001];
     let block_numbers: Vec<i64> = vec![400, 401];
     let tx_hashes = vec!["0xDupTx1", "0xDupTx2"];
@@ -180,20 +177,19 @@ async fn price_insert_happy_path() -> Result<()> {
     let price = BigDecimal::from_str("1234.56789")?;
 
     sqlx::query(observer::db::postgres::controller::price::INSERT_PRICE_SQL)
-        .bind("0xQuoteAAA")   // $1 quote_id
-        .bind(500i64)         // $2 block_number
-        .bind(&price)         // $3 price
-        .bind(5000i64)        // $4 created_at
+        .bind("0xQuoteAAA") // $1 quote_id
+        .bind(500i64) // $2 block_number
+        .bind(&price) // $3 price
+        .bind(5000i64) // $4 created_at
         .execute(pool)
         .await?;
 
-    let row: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM price WHERE quote_id = $1 AND block_number = $2",
-    )
-    .bind("0xQuoteAAA")
-    .bind(500i64)
-    .fetch_one(pool)
-    .await?;
+    let row: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM price WHERE quote_id = $1 AND block_number = $2")
+            .bind("0xQuoteAAA")
+            .bind(500i64)
+            .fetch_one(pool)
+            .await?;
     assert_eq!(row.0, 1);
     Ok(())
 }
@@ -215,12 +211,10 @@ async fn price_insert_duplicate_ignored() -> Result<()> {
             .await?;
     }
 
-    let row: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM price WHERE quote_id = $1",
-    )
-    .bind("0xQuoteBBB")
-    .fetch_one(pool)
-    .await?;
+    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM price WHERE quote_id = $1")
+        .bind("0xQuoteBBB")
+        .fetch_one(pool)
+        .await?;
     assert_eq!(row.0, 1);
     Ok(())
 }
@@ -240,19 +234,17 @@ async fn price_batch_insert_happy_path() -> Result<()> {
     let timestamps: Vec<i64> = vec![7000, 7001, 7002];
 
     sqlx::query(observer::db::postgres::controller::price::BATCH_INSERT_PRICES_SQL)
-        .bind("0xQuoteCCC")   // $1 quote_id (scalar)
+        .bind("0xQuoteCCC") // $1 quote_id (scalar)
         .bind(&block_numbers) // $2
-        .bind(&prices)        // $3
-        .bind(&timestamps)    // $4
+        .bind(&prices) // $3
+        .bind(&timestamps) // $4
         .execute(pool)
         .await?;
 
-    let row: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM price WHERE quote_id = $1",
-    )
-    .bind("0xQuoteCCC")
-    .fetch_one(pool)
-    .await?;
+    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM price WHERE quote_id = $1")
+        .bind("0xQuoteCCC")
+        .fetch_one(pool)
+        .await?;
     assert_eq!(row.0, 3);
     Ok(())
 }
@@ -274,10 +266,7 @@ async fn price_batch_insert_partial_duplicate() -> Result<()> {
 
     // Batch includes block 800 (dup) + block 801 (new)
     let block_numbers: Vec<i64> = vec![800, 801];
-    let prices = vec![
-        BigDecimal::from_str("50.0")?,
-        BigDecimal::from_str("60.0")?,
-    ];
+    let prices = vec![BigDecimal::from_str("50.0")?, BigDecimal::from_str("60.0")?];
     let timestamps: Vec<i64> = vec![8000, 8001];
 
     sqlx::query(observer::db::postgres::controller::price::BATCH_INSERT_PRICES_SQL)
@@ -288,12 +277,10 @@ async fn price_batch_insert_partial_duplicate() -> Result<()> {
         .execute(pool)
         .await?;
 
-    let row: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM price WHERE quote_id = $1",
-    )
-    .bind("0xQuoteDDD")
-    .fetch_one(pool)
-    .await?;
+    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM price WHERE quote_id = $1")
+        .bind("0xQuoteDDD")
+        .fetch_one(pool)
+        .await?;
     assert_eq!(row.0, 2);
     Ok(())
 }
@@ -309,18 +296,17 @@ async fn account_upsert_happy_path() -> Result<()> {
     let pool = &db.pool;
 
     sqlx::query(observer::db::postgres::controller::account::UPSERT_ACCOUNT_SQL)
-        .bind("0xAccount01")           // $1 account_id
-        .bind("0xAccount01")           // $2 nickname
+        .bind("0xAccount01") // $1 account_id
+        .bind("0xAccount01") // $2 nickname
         .bind("https://img/default.png") // $3 image_uri
         .execute(pool)
         .await?;
 
-    let row: (String, String) = sqlx::query_as(
-        "SELECT nickname, image_uri FROM account WHERE account_id = $1",
-    )
-    .bind("0xAccount01")
-    .fetch_one(pool)
-    .await?;
+    let row: (String, String) =
+        sqlx::query_as("SELECT nickname, image_uri FROM account WHERE account_id = $1")
+            .bind("0xAccount01")
+            .fetch_one(pool)
+            .await?;
     assert_eq!(row.0, "0xAccount01");
     assert_eq!(row.1, "https://img/default.png");
     Ok(())
@@ -347,12 +333,10 @@ async fn account_upsert_duplicate_ignored() -> Result<()> {
         .execute(pool)
         .await?;
 
-    let row: (String,) = sqlx::query_as(
-        "SELECT image_uri FROM account WHERE account_id = $1",
-    )
-    .bind("0xAccount02")
-    .fetch_one(pool)
-    .await?;
+    let row: (String,) = sqlx::query_as("SELECT image_uri FROM account WHERE account_id = $1")
+        .bind("0xAccount02")
+        .fetch_one(pool)
+        .await?;
     assert_eq!(row.0, "https://img/1.png", "first insert should win");
     Ok(())
 }
@@ -425,12 +409,10 @@ async fn account_batch_upsert_partial_existing() -> Result<()> {
     assert_eq!(row.0, 2, "should have 2 total accounts");
 
     // Existing account should retain original image
-    let img: (String,) = sqlx::query_as(
-        "SELECT image_uri FROM account WHERE account_id = $1",
-    )
-    .bind("0xExist01")
-    .fetch_one(pool)
-    .await?;
+    let img: (String,) = sqlx::query_as("SELECT image_uri FROM account WHERE account_id = $1")
+        .bind("0xExist01")
+        .fetch_one(pool)
+        .await?;
     assert_eq!(img.0, "original_img", "existing account not overwritten");
     Ok(())
 }

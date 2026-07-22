@@ -8,7 +8,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     db::postgres::{PostgresDatabase, controller::token::TokenController},
-    types::legacy_curve::TokenMetadata,
+    types::metadata::TokenMetadata,
 };
 
 const REQUEST_TIMEOUT_SECS: u64 = 10;
@@ -113,7 +113,7 @@ async fn fetch_metadata(client: &reqwest::Client, url: &str) -> Result<TokenMeta
         let response = match client
             .get(url)
             .header("Accept", "application/json")
-            .header("User-Agent", "Nad-Observer/1.0") // User-Agent 추가
+            .header("User-Agent", "GIWA-Observer/1.0")
             .send()
             .await
         {

@@ -1,4 +1,4 @@
-//! Integration tests for the active v2 Curve sniping controller.
+//! Integration tests for the Curve sniping controller.
 
 mod common;
 
@@ -10,7 +10,7 @@ use std::str::FromStr;
 // Shared test constants
 const TOKEN: &str = "0x1111111111111111111111111111111111111111";
 const BUYER: &str = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-const TX1: &str = "0xtx_v2_test_1";
+const TX1: &str = "0xtx_sniping_test_1";
 
 fn bd(s: &str) -> BigDecimal {
     BigDecimal::from_str(s).unwrap()
@@ -36,12 +36,11 @@ async fn sniping_penalties_happy() -> Result<()> {
         .execute(&db.pool)
         .await?;
 
-    let (sniping_fee, penalty_bps): (BigDecimal, BigDecimal) = sqlx::query_as(
-        "SELECT sniping_fee, penalty_bps FROM sniping_history WHERE token_id = $1",
-    )
-    .bind(TOKEN)
-    .fetch_one(&db.pool)
-    .await?;
+    let (sniping_fee, penalty_bps): (BigDecimal, BigDecimal) =
+        sqlx::query_as("SELECT sniping_fee, penalty_bps FROM sniping_history WHERE token_id = $1")
+            .bind(TOKEN)
+            .fetch_one(&db.pool)
+            .await?;
     assert_eq!(sniping_fee, bd("100"));
     assert_eq!(penalty_bps, bd("500"));
     Ok(())
@@ -65,11 +64,10 @@ async fn sniping_penalties_duplicate_ignored() -> Result<()> {
             .await?;
     }
 
-    let count: (i64,) =
-        sqlx::query_as("SELECT count(*) FROM sniping_history WHERE token_id = $1")
-            .bind(TOKEN)
-            .fetch_one(&db.pool)
-            .await?;
+    let count: (i64,) = sqlx::query_as("SELECT count(*) FROM sniping_history WHERE token_id = $1")
+        .bind(TOKEN)
+        .fetch_one(&db.pool)
+        .await?;
     assert_eq!(count.0, 1);
     Ok(())
 }

@@ -1,9 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-    config::DEFAULT_DELAY,
-    db::postgres::PostgresDatabase,
-    measure_postgres,
+    config::DEFAULT_DELAY, db::postgres::PostgresDatabase, measure_postgres,
+    types::metadata::TokenMetadata,
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -71,7 +70,7 @@ pub const BATCH_INSERT_TOKENS_AND_MARKETS_SQL: &str = r#"
                     ON CONFLICT (token_id, block_number, transaction_hash, tx_index, log_index) DO NOTHING
                     "#;
 
-/// v1/v2 공용 token+market batch insert 데이터
+/// Token and market batch insert data.
 pub struct TokenBatchData {
     pub token_id: String,
     pub name: String,
@@ -84,7 +83,7 @@ pub struct TokenBatchData {
     pub image_uri: String,
     pub is_nsfw: bool,
     pub market_type: String, // "CURVE" or "DEX"
-    pub quote_id: String, // quote token address (default: WMON)
+    pub quote_id: String,    // quote token address (default: WMON)
     pub virtual_native: String,
     pub virtual_token: String,
     pub block_number: i64,
@@ -104,10 +103,7 @@ impl TokenController {
     }
 
     /// Fetch metadata from token_metadata table
-    pub async fn fetch_metadata(
-        &self,
-        metadata_url: &str,
-    ) -> Result<crate::types::legacy_curve::TokenMetadata> {
+    pub async fn fetch_metadata(&self, metadata_url: &str) -> Result<TokenMetadata> {
         let row = sqlx::query!(
             r#"
             SELECT name, symbol, description, image_url, website, twitter, telegram, is_nsfw
@@ -123,7 +119,7 @@ impl TokenController {
         match row {
             Some(r) => {
                 info!("✅ Metadata found in DB: {}", metadata_url);
-                Ok(crate::types::legacy_curve::TokenMetadata {
+                Ok(TokenMetadata {
                     description: r.description,
                     twitter: r.twitter,
                     telegram: r.telegram,
@@ -180,10 +176,7 @@ impl TokenController {
         Ok(())
     }
 
-    pub async fn batch_insert_tokens_and_markets(
-        &self,
-        batch: &[TokenBatchData],
-    ) -> Result<()> {
+    pub async fn batch_insert_tokens_and_markets(&self, batch: &[TokenBatchData]) -> Result<()> {
         if batch.is_empty() {
             return Ok(());
         }
@@ -259,32 +252,32 @@ impl TokenController {
             attempt += 1;
             let query_result = measure_postgres!("token_batch_insert_tokens_and_markets", {
                 sqlx::query(BATCH_INSERT_TOKENS_AND_MARKETS_SQL)
-                .bind(&token_ids)           // $1
-                .bind(&names)               // $2
-                .bind(&symbols)             // $3
-                .bind(&creators)            // $4
-                .bind(&descriptions)        // $5
-                .bind(&twitters)            // $6
-                .bind(&telegrams)           // $7
-                .bind(&websites)            // $8
-                .bind(&image_uris)          // $9
-                .bind(&is_nsfws)            // $10
-                .bind(&is_graduateds)       // $11
-                .bind(&total_supplies)      // $12
-                .bind(&created_ats)         // $13
-                .bind(&prices)              // $14
-                .bind(&market_types)        // $15
-                .bind(&latest_trade_ats)    // $16
-                .bind(&block_numbers)       // $17
-                .bind(&transaction_hashes)  // $18
-                .bind(&log_indices)         // $19
-                .bind(&tx_indices)          // $20
-                .bind(&reserve_quotes)      // $21
-                .bind(&reserve_tokens)      // $22
-                .bind(&quote_ids)           // $23
-                .bind(&*crate::config::WNATIVE_ADDRESS)  // $24 (WNATIVE for latest_native_price)
-                .execute(&self.db.pool)
-                .await
+                    .bind(&token_ids) // $1
+                    .bind(&names) // $2
+                    .bind(&symbols) // $3
+                    .bind(&creators) // $4
+                    .bind(&descriptions) // $5
+                    .bind(&twitters) // $6
+                    .bind(&telegrams) // $7
+                    .bind(&websites) // $8
+                    .bind(&image_uris) // $9
+                    .bind(&is_nsfws) // $10
+                    .bind(&is_graduateds) // $11
+                    .bind(&total_supplies) // $12
+                    .bind(&created_ats) // $13
+                    .bind(&prices) // $14
+                    .bind(&market_types) // $15
+                    .bind(&latest_trade_ats) // $16
+                    .bind(&block_numbers) // $17
+                    .bind(&transaction_hashes) // $18
+                    .bind(&log_indices) // $19
+                    .bind(&tx_indices) // $20
+                    .bind(&reserve_quotes) // $21
+                    .bind(&reserve_tokens) // $22
+                    .bind(&quote_ids) // $23
+                    .bind(&*crate::config::WNATIVE_ADDRESS) // $24 (WNATIVE for latest_native_price)
+                    .execute(&self.db.pool)
+                    .await
             });
 
             match query_result {
