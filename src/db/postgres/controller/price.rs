@@ -57,12 +57,12 @@ impl PriceController {
 
             match measure_postgres!("price_insert_price", {
                 sqlx::query(INSERT_PRICE_SQL)
-                .bind(quote_id)
-                .bind(block_number as i64)
-                .bind(&price)
-                .bind(timestamp as i64)
-                .execute(&self.db.pool)
-                .await
+                    .bind(quote_id)
+                    .bind(block_number as i64)
+                    .bind(&price)
+                    .bind(timestamp as i64)
+                    .execute(&self.db.pool)
+                    .await
             }) {
                 Ok(_) => {
                     return Ok(());

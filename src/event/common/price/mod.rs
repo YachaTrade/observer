@@ -1,6 +1,6 @@
+pub mod provider;
 pub mod receive;
 pub mod stream;
-pub mod provider;
 
 use std::{future::Future, pin::Pin};
 

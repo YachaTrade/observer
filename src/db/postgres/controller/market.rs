@@ -1,10 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::{
-    config::DEFAULT_DELAY,
-    db::postgres::PostgresDatabase,
-    measure_postgres,
-};
+use crate::{config::DEFAULT_DELAY, db::postgres::PostgresDatabase, measure_postgres};
 
 use anyhow::{Result, anyhow};
 use bigdecimal::BigDecimal;
@@ -193,15 +189,15 @@ impl MarketController {
             attempt += 1;
             match measure_postgres!("market_handle_dex_sync", {
                 sqlx::query(HANDLE_DEX_SYNC_SQL)
-                .bind(&sync.token) // $1
-                .bind(&sync.price) // $2
-                .bind(&sync.reserve_quote) // $3
-                .bind(&sync.reserve_token) // $4
-                .bind(ath_price_usd) // $5 - ath_price (USD)
-                .bind(ath_price_quote) // $6 - ath_price_quote
-                .bind(sync.block_timestamp) // $7 - block_timestamp
-                .execute(&self.db.pool)
-                .await
+                    .bind(&sync.token) // $1
+                    .bind(&sync.price) // $2
+                    .bind(&sync.reserve_quote) // $3
+                    .bind(&sync.reserve_token) // $4
+                    .bind(ath_price_usd) // $5 - ath_price (USD)
+                    .bind(ath_price_quote) // $6 - ath_price_quote
+                    .bind(sync.block_timestamp) // $7 - block_timestamp
+                    .execute(&self.db.pool)
+                    .await
             }) {
                 Ok(_) => {
                     return Ok(());
@@ -240,7 +236,8 @@ impl MarketController {
 
         // 1000개씩 chunk로 나눠서 처리
         for chunk in graduates.chunks(1000) {
-            self.batch_handle_graduates_chunk(chunk, graduated_market_type).await?;
+            self.batch_handle_graduates_chunk(chunk, graduated_market_type)
+                .await?;
         }
 
         Ok(())

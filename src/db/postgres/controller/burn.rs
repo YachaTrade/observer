@@ -86,14 +86,14 @@ impl BurnController {
 
             match measure_postgres!("burn_handle_burn", {
                 sqlx::query(HANDLE_BURN_SQL)
-                .bind(burn.from.as_ref().as_str()) // $1
-                .bind(burn.token.as_ref().as_str()) // $2
-                .bind(burn.amount.as_ref()) // $3
-                .bind(burn.transaction_hash.as_ref().as_str()) // $4
-                .bind(burn.log_index as i32) // $5
-                .bind(burn.block_timestamp as i64) // $6
-                .execute(&self.db.pool)
-                .await
+                    .bind(burn.from.as_ref().as_str()) // $1
+                    .bind(burn.token.as_ref().as_str()) // $2
+                    .bind(burn.amount.as_ref()) // $3
+                    .bind(burn.transaction_hash.as_ref().as_str()) // $4
+                    .bind(burn.log_index as i32) // $5
+                    .bind(burn.block_timestamp as i64) // $6
+                    .execute(&self.db.pool)
+                    .await
             }) {
                 Ok(_) => return Ok(()),
                 Err(e) => {

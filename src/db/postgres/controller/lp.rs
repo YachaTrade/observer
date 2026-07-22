@@ -84,13 +84,13 @@ impl LpController {
             let current_delay = base_delay.mul_f32(1.5_f32.powi(attempt - 1));
             match measure_postgres!("lp_handle_lp_allocate", {
                 sqlx::query(HANDLE_LP_ALLOCATE_SQL)
-                .bind(allocate.token.as_ref().as_str()) //$1
-                .bind(allocate.quote_amount.as_ref()) //$2
-                .bind(allocate.token_amount.as_ref()) //$3
-                .bind(allocate.transaction_hash.as_ref().as_str()) //$4
-                .bind(allocate.block_timestamp as i64) //$5
-                .execute(&self.db.pool)
-                .await
+                    .bind(allocate.token.as_ref().as_str()) //$1
+                    .bind(allocate.quote_amount.as_ref()) //$2
+                    .bind(allocate.token_amount.as_ref()) //$3
+                    .bind(allocate.transaction_hash.as_ref().as_str()) //$4
+                    .bind(allocate.block_timestamp as i64) //$5
+                    .execute(&self.db.pool)
+                    .await
             }) {
                 Ok(_) => return Ok(()),
                 Err(e) => {
@@ -133,18 +133,18 @@ impl LpController {
             let current_delay = base_delay.mul_f32(1.5_f32.powi(attempt - 1));
             match measure_postgres!("lp_handle_lp_collect", {
                 sqlx::query(HANDLE_LP_COLLECT_SQL)
-                .bind(collect.token.as_ref().as_str()) //$1
-                .bind(collect.quote_amount.as_ref()) //$2
-                .bind(collect.token_amount.as_ref()) //$3
-                .bind(collect.c_amount.as_ref()) //$4
-                .bind(collect.ft_amount.as_ref()) //$5
-                .bind(collect.ct_amount.as_ref()) //$6
-                .bind(collect.transaction_hash.as_ref().as_str()) //$7
-                .bind(collect.transaction_index as i32) //$8
-                .bind(collect.log_index as i32) //$9
-                .bind(collect.block_timestamp as i64) //$10
-                .execute(&self.db.pool)
-                .await
+                    .bind(collect.token.as_ref().as_str()) //$1
+                    .bind(collect.quote_amount.as_ref()) //$2
+                    .bind(collect.token_amount.as_ref()) //$3
+                    .bind(collect.c_amount.as_ref()) //$4
+                    .bind(collect.ft_amount.as_ref()) //$5
+                    .bind(collect.ct_amount.as_ref()) //$6
+                    .bind(collect.transaction_hash.as_ref().as_str()) //$7
+                    .bind(collect.transaction_index as i32) //$8
+                    .bind(collect.log_index as i32) //$9
+                    .bind(collect.block_timestamp as i64) //$10
+                    .execute(&self.db.pool)
+                    .await
             }) {
                 Ok(_) => return Ok(()),
                 Err(e) => {

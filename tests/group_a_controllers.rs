@@ -52,7 +52,15 @@ async fn balance_happy_path_single() -> Result<()> {
     insert_token(&db.pool, TOKEN, CREATOR).await?;
 
     call_batch_set_balances(
-        &db.pool, TOKEN, ALICE, "1000", 100, "0xtx1", 0, 0, 1_700_000_000,
+        &db.pool,
+        TOKEN,
+        ALICE,
+        "1000",
+        100,
+        "0xtx1",
+        0,
+        0,
+        1_700_000_000,
     )
     .await?;
 
@@ -73,11 +81,27 @@ async fn balance_multi_account_holder_count() -> Result<()> {
     insert_token(&db.pool, TOKEN, CREATOR).await?;
 
     call_batch_set_balances(
-        &db.pool, TOKEN, ALICE, "1000", 100, "0xtxA", 0, 0, 1_700_000_000,
+        &db.pool,
+        TOKEN,
+        ALICE,
+        "1000",
+        100,
+        "0xtxA",
+        0,
+        0,
+        1_700_000_000,
     )
     .await?;
     call_batch_set_balances(
-        &db.pool, TOKEN, BOB, "500", 101, "0xtxB", 0, 0, 1_700_000_001,
+        &db.pool,
+        TOKEN,
+        BOB,
+        "500",
+        101,
+        "0xtxB",
+        0,
+        0,
+        1_700_000_001,
     )
     .await?;
 
@@ -103,7 +127,15 @@ async fn balance_zero_deletes_row() -> Result<()> {
     insert_token(&db.pool, TOKEN, CREATOR).await?;
 
     call_batch_set_balances(
-        &db.pool, TOKEN, ALICE, "1000", 100, "0xtx1", 0, 0, 1_700_000_000,
+        &db.pool,
+        TOKEN,
+        ALICE,
+        "1000",
+        100,
+        "0xtx1",
+        0,
+        0,
+        1_700_000_000,
     )
     .await?;
     assert_eq!(get_token_holder_count(&db.pool, TOKEN).await?, 1);
@@ -111,7 +143,15 @@ async fn balance_zero_deletes_row() -> Result<()> {
     // Second insert with balance=0 — trigger UPDATE on balance sets it to 0,
     // trigger_delete_zero_balance then deletes the row.
     call_batch_set_balances(
-        &db.pool, TOKEN, ALICE, "0", 101, "0xtx2", 0, 0, 1_700_000_001,
+        &db.pool,
+        TOKEN,
+        ALICE,
+        "0",
+        101,
+        "0xtx2",
+        0,
+        0,
+        1_700_000_001,
     )
     .await?;
 
@@ -130,12 +170,28 @@ async fn balance_duplicate_event_no_op() -> Result<()> {
     insert_token(&db.pool, TOKEN, CREATOR).await?;
 
     call_batch_set_balances(
-        &db.pool, TOKEN, ALICE, "1000", 100, "0xtx1", 0, 0, 1_700_000_000,
+        &db.pool,
+        TOKEN,
+        ALICE,
+        "1000",
+        100,
+        "0xtx1",
+        0,
+        0,
+        1_700_000_000,
     )
     .await?;
     // Identical composite PK — must be a no-op at balance_history level.
     call_batch_set_balances(
-        &db.pool, TOKEN, ALICE, "2000", 100, "0xtx1", 0, 0, 1_700_000_000,
+        &db.pool,
+        TOKEN,
+        ALICE,
+        "2000",
+        100,
+        "0xtx1",
+        0,
+        0,
+        1_700_000_000,
     )
     .await?;
 
@@ -158,11 +214,27 @@ async fn balance_latest_insert_overwrites() -> Result<()> {
     insert_token(&db.pool, TOKEN, CREATOR).await?;
 
     call_batch_set_balances(
-        &db.pool, TOKEN, ALICE, "1000", 100, "0xtx1", 0, 0, 1_700_000_000,
+        &db.pool,
+        TOKEN,
+        ALICE,
+        "1000",
+        100,
+        "0xtx1",
+        0,
+        0,
+        1_700_000_000,
     )
     .await?;
     call_batch_set_balances(
-        &db.pool, TOKEN, ALICE, "500", 101, "0xtx2", 0, 0, 1_700_000_001,
+        &db.pool,
+        TOKEN,
+        ALICE,
+        "500",
+        101,
+        "0xtx2",
+        0,
+        0,
+        1_700_000_001,
     )
     .await?;
 
@@ -200,12 +272,12 @@ async fn position_happy_path_insert_and_returning() -> Result<()> {
         &db.pool,
         ALICE,
         TOKEN,
-        "0",      // quote_in
-        "100",    // quote_out
-        "0",      // usd_in
-        "300",    // usd_out
-        "50",     // token_in
-        "0",      // token_out
+        "0",   // quote_in
+        "100", // quote_out
+        "0",   // usd_in
+        "300", // usd_out
+        "50",  // token_in
+        "0",   // token_out
         "0xtx1",
         100,
         0,
@@ -349,12 +421,12 @@ async fn position_trigger_aggregates_into_position_table() -> Result<()> {
         &db.pool,
         ALICE,
         TOKEN,
-        "0",    // quote_in
-        "100",  // quote_out
-        "0",    // usd_in
-        "300",  // usd_out
-        "50",   // token_in
-        "0",    // token_out
+        "0",   // quote_in
+        "100", // quote_out
+        "0",   // usd_in
+        "300", // usd_out
+        "50",  // token_in
+        "0",   // token_out
         "0xtx1",
         100,
         0,
@@ -417,14 +489,14 @@ async fn swap_batch_insert_happy_path() -> Result<()> {
         &db.pool,
         ALICE,
         TOKEN,
-        true,           // is_buy
-        "100",          // quote_amount
-        "50",           // token_amount
-        "1000",         // reserve_quote
-        "500",          // reserve_token
-        "300",          // value
-        "CURVE",        // market_type
-        1_700_000_000,  // created_at
+        true,          // is_buy
+        "100",         // quote_amount
+        "50",          // token_amount
+        "1000",        // reserve_quote
+        "500",         // reserve_token
+        "300",         // value
+        "CURVE",       // market_type
+        1_700_000_000, // created_at
         "0xtx1",
         100,
         0,
@@ -451,18 +523,57 @@ async fn swap_batch_insert_multiple() -> Result<()> {
     insert_market(&db.pool, TOKEN, "CURVE").await?;
 
     call_batch_insert_swaps(
-        &db.pool, ALICE, TOKEN, true, "100", "50", "1000", "500", "300", "CURVE",
-        1_700_000_000, "0xtx1", 100, 0, 0,
+        &db.pool,
+        ALICE,
+        TOKEN,
+        true,
+        "100",
+        "50",
+        "1000",
+        "500",
+        "300",
+        "CURVE",
+        1_700_000_000,
+        "0xtx1",
+        100,
+        0,
+        0,
     )
     .await?;
     call_batch_insert_swaps(
-        &db.pool, BOB, TOKEN, true, "200", "80", "1200", "420", "600", "CURVE",
-        1_700_000_001, "0xtx2", 101, 0, 0,
+        &db.pool,
+        BOB,
+        TOKEN,
+        true,
+        "200",
+        "80",
+        "1200",
+        "420",
+        "600",
+        "CURVE",
+        1_700_000_001,
+        "0xtx2",
+        101,
+        0,
+        0,
     )
     .await?;
     call_batch_insert_swaps(
-        &db.pool, CAROL, TOKEN, false, "50", "20", "1150", "440", "150", "CURVE",
-        1_700_000_002, "0xtx3", 102, 0, 0,
+        &db.pool,
+        CAROL,
+        TOKEN,
+        false,
+        "50",
+        "20",
+        "1150",
+        "440",
+        "150",
+        "CURVE",
+        1_700_000_002,
+        "0xtx3",
+        102,
+        0,
+        0,
     )
     .await?;
 
@@ -484,14 +595,40 @@ async fn swap_batch_insert_duplicate_no_op() -> Result<()> {
     insert_market(&db.pool, TOKEN, "CURVE").await?;
 
     call_batch_insert_swaps(
-        &db.pool, ALICE, TOKEN, true, "100", "50", "1000", "500", "300", "CURVE",
-        1_700_000_000, "0xtx1", 100, 0, 0,
+        &db.pool,
+        ALICE,
+        TOKEN,
+        true,
+        "100",
+        "50",
+        "1000",
+        "500",
+        "300",
+        "CURVE",
+        1_700_000_000,
+        "0xtx1",
+        100,
+        0,
+        0,
     )
     .await?;
     // Same PK — ignored.
     call_batch_insert_swaps(
-        &db.pool, ALICE, TOKEN, true, "999", "999", "999", "999", "999", "CURVE",
-        1_700_000_000, "0xtx1", 100, 0, 0,
+        &db.pool,
+        ALICE,
+        TOKEN,
+        true,
+        "999",
+        "999",
+        "999",
+        "999",
+        "999",
+        "CURVE",
+        1_700_000_000,
+        "0xtx1",
+        100,
+        0,
+        0,
     )
     .await?;
 
