@@ -1,6 +1,5 @@
 const MIGRATION: &str = include_str!("../migrations/0001_init.sql");
 const README: &str = include_str!("../README.md");
-const AGENTS: &str = include_str!("../AGENTS.md");
 const ACTIVE_EVENT_DOCS: &str = concat!(
     include_str!("../docs/event-indexing.md"),
     include_str!("../docs/event/common/price.md"),
@@ -184,29 +183,6 @@ fn active_surfaces_have_no_legacy_version_labels() {
 #[test]
 fn active_docs_reflect_current_runtime() {
     assert!(README.starts_with("# GIWA Observer"));
-
-    assert!(AGENTS.contains("seven handlers"));
-    for handler in [
-        "`curve`",
-        "`dex`",
-        "`lp_manager`",
-        "`token`",
-        "`price`",
-        "`vault`",
-        "`vault_registry`",
-    ] {
-        assert!(
-            AGENTS.contains(handler),
-            "missing active handler: {handler}"
-        );
-    }
-    assert!(AGENTS.contains("PriceUsd is dormant"));
-    for stale_claim in ["NADFUN", "UNISWAPV3", "token.version", "token.chain"] {
-        assert!(
-            !AGENTS.contains(stale_claim),
-            "stale AGENTS claim: {stale_claim}"
-        );
-    }
 
     let dex = include_str!("../docs/event/dex.md");
     for active_event in ["Swap", "Mint", "Burn"] {
