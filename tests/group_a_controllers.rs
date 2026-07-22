@@ -2,8 +2,8 @@
 //! Each test section validates one controller method plus the DB triggers
 //! it cascades into.
 //!
-//! Note: `transfer.rs` was in the original scope but that controller file
-//! is a stale orphan in the v2 branch: it is not exported from
+//! Note: `transfer.rs` is not part of the active controller surface: it is
+//! not exported from
 //! `src/db/postgres/controller/mod.rs`, the `TokenTransfer` field it
 //! references (`tx_sender`) does not exist on the current struct, and the
 //! baseline migrations define no `transfer` table. Wiring tests against

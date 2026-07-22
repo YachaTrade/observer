@@ -1,7 +1,7 @@
 use bigdecimal::BigDecimal;
 use std::sync::Arc;
 
-/// Fee 타입 (v1/v2 공용)
+/// Indexed fee type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeeType {
     Create,
@@ -27,7 +27,7 @@ impl FeeType {
     }
 }
 
-/// Fee History 이벤트 (v1/v2 공용)
+/// Indexed fee history event.
 #[derive(Debug, Clone)]
 pub struct FeeHistoryEvent {
     pub transaction_hash: Arc<String>,

@@ -745,7 +745,7 @@ PnL 조회 시 `position`과 `fee`를 JOIN해서 최종 PnL 계산.
 
 ```
 1. Create
-   fee_native = CREATE_FEE_AMOUNT (10 * 10^18)
+   fee_native = DEPLOY_FE_AMOUNT (10 wei)
    fee_usd = (fee_native / 10^18) * native_price
 
 2. CurveBuy

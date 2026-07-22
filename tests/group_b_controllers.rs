@@ -501,6 +501,8 @@ async fn pool_batch_update_reserves_freshness_breaks_timestamp_tie() -> Result<(
     let r1s = vec![parse("4444"), parse("5555")];
     let prices = vec![parse("1.0"), parse("2.0")];
     let values: Vec<Option<BigDecimal>> = vec![None, None];
+    let token0_price_usds: Vec<Option<BigDecimal>> = vec![None, None];
+    let token1_price_usds: Vec<Option<BigDecimal>> = vec![None, None];
     let block_timestamps = vec![1_700_000_500_i64, 1_700_000_500_i64]; // identical
     let block_numbers = vec![200_i64, 200_i64]; // identical
     let tx_indexes = vec![0_i32, 0_i32]; // identical
@@ -511,6 +513,8 @@ async fn pool_batch_update_reserves_freshness_breaks_timestamp_tie() -> Result<(
         .bind(&r1s)
         .bind(&prices)
         .bind(&values)
+        .bind(&token0_price_usds)
+        .bind(&token1_price_usds)
         .bind(&block_timestamps)
         .bind(&block_numbers)
         .bind(&tx_indexes)

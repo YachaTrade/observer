@@ -156,7 +156,7 @@ async fn process_token_events(
     let cache_manager = CacheManager::instance()?;
 
     // Resolve quote token for USD price conversion. `get_token_quote_id`
-    // returns EIP-55 checksum (normalize at the cache boundary), so legacy
+    // returns an EIP-55 checksum (normalized at the cache boundary), so
     // lowercase market.quote_id rows are case-corrected here before any
     // downstream `==` / case-sensitive lookup (price cache key, WNATIVE
     // equality, etc.).
@@ -387,29 +387,27 @@ async fn process_token_events(
     let chart_batch: Vec<ChartBatchData> = chart_map.into_values().collect();
 
     // 1. Account upsert
-    if !account_list.is_empty() {
-        if let Err(e) = account_controller
+    if !account_list.is_empty()
+        && let Err(e) = account_controller
             .batch_upsert_accounts(&account_list)
             .await
-        {
-            warn!(
-                "[CURVE] Account batch upsert failed for token {}: {}",
-                token, e
-            );
-        }
+    {
+        warn!(
+            "[CURVE] Account batch upsert failed for token {}: {}",
+            token, e
+        );
     }
 
     // 2. Token/Market creation
-    if !create_batch.is_empty() {
-        if let Err(e) = token_controller
+    if !create_batch.is_empty()
+        && let Err(e) = token_controller
             .batch_insert_tokens_and_markets(&create_batch)
             .await
-        {
-            error!(
-                "[CURVE] Token operation failed for token {}: {:#}",
-                token, e
-            );
-        }
+    {
+        error!(
+            "[CURVE] Token operation failed for token {}: {:#}",
+            token, e
+        );
     }
 
     // 3. Market sync + graduate
@@ -471,7 +469,7 @@ async fn process_token_events(
         }
 
         // Insert pools for graduated tokens
-        // V2 멀티 quote 지원: 토큰별 quote_id를 조회해서 token0/token1 결정.
+        // Resolve token0/token1 from each token's configured quote_id.
         // Create 이후라 정상 흐름이면 항상 존재하나, miss 시 WMON fallback.
         use crate::db::postgres::controller::pool::PoolData;
         let mut pool_batch: Vec<PoolData> = Vec::with_capacity(graduate_events.len());

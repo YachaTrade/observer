@@ -15,7 +15,7 @@
 
 ## VaultType enum 매핑
 
-컨트랙트: `nadfun-contract-v2/src/interfaces/IVaultRegistry.sol`
+컨트랙트 enum: `IVaultRegistry.VaultType`
 
 | on-chain 값 | Rust `RegisteredVaultType` | DB `vault_type` |
 |---|---|---|
@@ -63,10 +63,10 @@
 
 ### DB 저장
 
-**`v2_vault_registry`** (append-only 이벤트 로그):
+**`vault_registry`** (append-only 이벤트 로그):
 - `vault_id, transaction_hash, block_number, created_at, log_index, tx_index`
 
-**`v2_vault_metadata`** (denormalized, PK=vault_id, upsert):
+**`vault_metadata`** (denormalized, PK=vault_id, upsert):
 - `name, creator, vault_type, active=TRUE, metadata_uri, metadata (JSONB), metadata_fetched_at, registered_at, updated_at`
 - ON CONFLICT: `registered_at` 비교로 오래된 replay 가 최신 상태를 덮어쓰는 것 방지.
 
@@ -82,7 +82,7 @@
 
 ### DB 동작
 
-`v2_vault_metadata.active` 컬럼을 UPDATE. `updated_at` guard 로 reorg replay 시 이전 상태로 돌아가는 것 방지. 별도 히스토리 테이블은 없음.
+`vault_metadata.active` 컬럼을 UPDATE. `updated_at` guard 로 reorg replay 시 이전 상태로 돌아가는 것 방지. 별도 히스토리 테이블은 없음.
 
 ---
 
@@ -90,12 +90,12 @@
 
 **활성 볼트 전체 목록**:
 ```sql
-SELECT * FROM v2_vault_metadata WHERE active;
+SELECT * FROM vault_metadata WHERE active;
 ```
 
 **특정 타입 활성 볼트**:
 ```sql
-SELECT * FROM v2_vault_metadata
+SELECT * FROM vault_metadata
 WHERE active AND vault_type = 'BURN';
 ```
 
@@ -103,14 +103,14 @@ WHERE active AND vault_type = 'BURN';
 ```sql
 SELECT vault_id, metadata->>'name' AS display_name,
        metadata->'description'->>'what' AS description_what
-FROM v2_vault_metadata
+FROM vault_metadata
 WHERE active;
 ```
 
 **메타데이터 fetch 실패한 볼트 (백필 대상)**:
 ```sql
 SELECT vault_id, metadata_uri
-FROM v2_vault_metadata
+FROM vault_metadata
 WHERE metadata IS NULL;
 ```
 

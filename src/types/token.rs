@@ -2,21 +2,6 @@ use anyhow::Result;
 use bigdecimal::BigDecimal;
 use std::sync::Arc;
 
-#[derive(Debug, Clone)]
-pub struct LpPositionHistoryEvent {
-    pub account_id: Arc<String>,
-    pub pool_id: Arc<String>,
-    pub lp_in: Arc<BigDecimal>,
-    pub lp_out: Arc<BigDecimal>,
-    pub event_type: &'static str,
-    pub counterparty: Option<Arc<String>>,
-    pub block_number: u64,
-    pub block_timestamp: u64,
-    pub transaction_hash: Arc<String>,
-    pub transaction_index: u64,
-    pub log_index: u64,
-}
-
 // 새로운 구조체: 실제 잔액을 담는 용도
 #[derive(Debug, Clone)]
 pub struct TokenBalance {
@@ -61,11 +46,6 @@ pub enum TokenEvent {
     Burn(TokenBurn),
     Transfer(TokenTransfer),
     PositionHistory(PositionHistoryEvent),
-    /// V2 NadFunPair LP Transfer-derived row. `account_address()` returns the
-    /// row owner (mint→to, burn→from, transfer_out→from, transfer_in→to);
-    /// `token_address()` returns the `pool_id` so the event can be grouped
-    /// like any other token event.
-    LpPosition(LpPositionHistoryEvent),
 }
 
 impl TokenEvent {
@@ -75,7 +55,6 @@ impl TokenEvent {
             Self::Burn(event) => event.token.as_str(),
             Self::Transfer(event) => event.token.as_str(),
             Self::PositionHistory(event) => event.token_id.as_str(),
-            Self::LpPosition(event) => event.pool_id.as_str(),
         }
     }
 
@@ -85,7 +64,6 @@ impl TokenEvent {
             Self::Burn(event) => event.from.as_str(),
             Self::Transfer(event) => event.from_address.as_str(),
             Self::PositionHistory(event) => event.account_id.as_str(),
-            Self::LpPosition(event) => event.account_id.as_str(),
         }
     }
 
@@ -95,7 +73,6 @@ impl TokenEvent {
             Self::Burn(event) => event.block_number,
             Self::Transfer(event) => event.block_number,
             Self::PositionHistory(event) => event.block_number,
-            Self::LpPosition(event) => event.block_number,
         }
     }
 
@@ -105,7 +82,6 @@ impl TokenEvent {
             Self::Burn(event) => event.log_index,
             Self::Transfer(event) => event.log_index,
             Self::PositionHistory(event) => event.log_index,
-            Self::LpPosition(event) => event.log_index,
         }
     }
 
@@ -115,7 +91,6 @@ impl TokenEvent {
             Self::Burn(event) => event.transaction_index,
             Self::Transfer(event) => event.tx_index,
             Self::PositionHistory(event) => event.tx_index,
-            Self::LpPosition(event) => event.transaction_index,
         }
     }
 
@@ -125,7 +100,6 @@ impl TokenEvent {
             Self::Burn(event) => event.block_timestamp,
             Self::Transfer(event) => event.block_timestamp,
             Self::PositionHistory(event) => event.block_timestamp,
-            Self::LpPosition(event) => event.block_timestamp,
         }
     }
 }
@@ -242,7 +216,7 @@ impl TransferType {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn from_db_value(s: &str) -> Self {
         match s {
             "buy" => TransferType::Buy,
             "sell" => TransferType::Sell,

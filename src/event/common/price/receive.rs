@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use crate::{
-    config::WNATIVE_ADDRESS,
     db::cache::CacheManager,
     db::postgres::{PostgresDatabase, controller::price::PriceController},
     sync::{EventType, receive::RECEIVE_MANAGER},
@@ -34,13 +33,13 @@ pub async fn receive_events(
         total_events += event_count;
 
         // Group events by quote_id for batched processing
-        let mut by_quote: HashMap<String, Vec<(u64, bigdecimal::BigDecimal, u64)>> =
-            HashMap::new();
+        let mut by_quote: HashMap<String, Vec<(u64, bigdecimal::BigDecimal, u64)>> = HashMap::new();
         for e in events {
-            by_quote
-                .entry(e.quote_id)
-                .or_default()
-                .push((e.block_number, e.price, e.block_timestamp));
+            by_quote.entry(e.quote_id).or_default().push((
+                e.block_number,
+                e.price,
+                e.block_timestamp,
+            ));
         }
 
         let price_controller = PriceController::new(db.clone());
@@ -56,13 +55,6 @@ pub async fn receive_events(
                 cache_manager
                     .insert_price_batch_for_quote(quote_id, &cache_batch)
                     .await;
-
-                // For WMON, also write to the legacy WMON-specific cache
-                // so existing consumers (e.g. swap.rs get_prices_for_block_range)
-                // continue to work without changes.
-                if *quote_id == *WNATIVE_ADDRESS {
-                    cache_manager.insert_price_batch(&cache_batch).await;
-                }
 
                 debug!(
                     "[PRICE] Cached {} prices for quote {} in memory",

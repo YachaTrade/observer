@@ -11,12 +11,12 @@ pub mod chart;
 pub mod dividend;
 pub mod fee;
 pub mod lp;
-pub mod lp_position;
 pub mod market;
 pub mod mint;
 pub mod pool;
 pub mod position;
 pub mod price;
+pub mod price_usd;
 pub mod sniping;
 pub mod swap;
 pub mod token;
@@ -47,7 +47,7 @@ where
             Err(e) => {
                 if attempt >= max_attempts {
                     return Err(anyhow!(
-                        "[V2] Failed to insert {} after {} attempts: {}",
+                        "Failed to insert {} after {} attempts: {}",
                         name,
                         attempt,
                         e
@@ -59,7 +59,7 @@ where
                     base_delay.mul_f32(1.5_f32.powi(attempt - 1))
                 };
                 warn!(
-                    "[V2] {} insert failed on attempt {}: {}. Retrying in {}ms",
+                    "{} insert failed on attempt {}: {}. Retrying in {}ms",
                     name,
                     attempt,
                     e,

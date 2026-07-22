@@ -83,7 +83,7 @@ async fn do_fetch(client: &reqwest::Client, url: &reqwest::Url) -> Result<VaultM
         let response = match client
             .get(url.clone())
             .header("Accept", "application/json")
-            .header("User-Agent", "Nad-Observer/1.0")
+            .header("User-Agent", "GIWA-Observer/1.0")
             .send()
             .await
         {

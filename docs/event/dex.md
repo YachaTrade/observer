@@ -5,8 +5,6 @@
 - **Deployment addresses**: `DEX_FACTORY`, `DEX_ROUTER`
 - **Dependency**: Curve
 
-> Implementation provenance: the active Dex stream uses GIWA canonical Uniswap V3 pools and GiwaRouter Buy/Sell events where `graduated=true`.
-
 Dex processes known canonical Uniswap V3 token pools and accepts router events only from the configured GiwaRouter address. Events are ordered by block number, transaction index, and log index, grouped by token where applicable, and then written in batches.
 
 ## Swap
@@ -24,10 +22,6 @@ Receive processing writes swap, market, chart, point, and fee-history data. The 
 ## Mint and Burn
 
 Mint and Burn carry the owner, liquidity delta, and token amounts. The stream reads the pool state at the event block, calculates quote/token reserves, and persists the resulting liquidity history to the corresponding table.
-
-## SetFeeProtocol
-
-SetFeeProtocol records the old and new protocol fee values for each side of a whitelisted pool. These events are batched separately because they are pool-scoped rather than token-scoped.
 
 ## Router buy and sell
 

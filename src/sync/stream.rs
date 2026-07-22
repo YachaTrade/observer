@@ -30,7 +30,7 @@ fn stream_policy(event_type: EventType) -> StreamPolicy {
         EventType::Dex | EventType::LpManager | EventType::Vault => StreamPolicy::CurveGated,
         EventType::Token => StreamPolicy::TokenCurveGated,
         EventType::Price => StreamPolicy::Price,
-        EventType::VaultRegistry => StreamPolicy::Independent,
+        EventType::PriceUsd | EventType::VaultRegistry => StreamPolicy::Independent,
     }
 }
 

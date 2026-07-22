@@ -1,4 +1,4 @@
-//! Integration tests for the active v2 Curve sniping controller.
+//! Integration tests for the Curve sniping controller.
 
 mod common;
 
@@ -10,7 +10,7 @@ use std::str::FromStr;
 // Shared test constants
 const TOKEN: &str = "0x1111111111111111111111111111111111111111";
 const BUYER: &str = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-const TX1: &str = "0xtx_v2_test_1";
+const TX1: &str = "0xtx_sniping_test_1";
 
 fn bd(s: &str) -> BigDecimal {
     BigDecimal::from_str(s).unwrap()

@@ -93,7 +93,7 @@ pub const BATCH_HANDLE_GRADUATES_SQL: &str = r#"
                 SELECT COUNT(*) FROM market_updates
             "#;
 
-/// v1/v2 공용 curve sync 데이터
+/// Curve sync data.
 pub struct CurveSyncData {
     pub token: String,
     pub price: BigDecimal,
@@ -103,7 +103,7 @@ pub struct CurveSyncData {
     pub market_type: String, // "CURVE" or "DEX"
 }
 
-/// v1/v2 공용 dex sync 데이터
+/// DEX sync data.
 pub struct DexSyncData {
     pub token: String,
     pub price: BigDecimal,

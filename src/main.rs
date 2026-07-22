@@ -42,9 +42,8 @@ async fn main() -> Result<()> {
         let db = PostgresDatabase::instance()?;
         observer::config::init_quote_configs_from_db(&db.pool).await?;
 
-        // Flush observer-owned Redis caches at startup so the refactor's
-        // new checksum-cased addresses don't collide with legacy lowercase
-        // values from pre-refactor cache entries.
+        // Flush observer-owned Redis caches at startup so every rebuilt
+        // address-bearing value follows the EIP-55 checksum invariant.
         RedisDatabase::instance()?.flush_observer_caches().await?;
 
         // 새로운 캐시 매니저 초기화

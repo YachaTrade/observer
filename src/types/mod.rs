@@ -1,10 +1,9 @@
-pub mod chart;
 pub mod curve;
 pub mod dex;
 pub mod dividend;
 pub mod fee;
-pub mod legacy_curve;
 pub mod lp_manager;
+pub mod metadata;
 pub mod price;
 pub mod token;
 pub mod vault;

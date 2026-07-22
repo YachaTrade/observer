@@ -151,7 +151,7 @@ impl DividendController {
         let tx_indices: Vec<i32> = data.iter().map(|d| d.tx_index).collect();
 
         retry_query("dividend_setups", || async {
-            measure_postgres!("v2_batch_insert_dividend_setups", {
+            measure_postgres!("batch_insert_dividend_setups", {
                 sqlx::query(INSERT_DIVIDEND_SETUPS_SQL)
                     .bind(&source_tokens)
                     .bind(&dividend_tokens)
@@ -188,7 +188,7 @@ impl DividendController {
         let usd_values: Vec<&BigDecimal> = data.iter().map(|d| &d.usd_value).collect();
 
         retry_query("dividend_deposits", || async {
-            measure_postgres!("v2_batch_insert_dividend_deposits", {
+            measure_postgres!("batch_insert_dividend_deposits", {
                 sqlx::query(INSERT_DIVIDEND_DEPOSITS_SQL)
                     .bind(&source_tokens)
                     .bind(&dividend_tokens)
@@ -230,7 +230,7 @@ impl DividendController {
         let usd_values: Vec<&BigDecimal> = data.iter().map(|d| &d.usd_value).collect();
 
         retry_query("dividend_conversions", || async {
-            measure_postgres!("v2_batch_insert_dividend_conversions", {
+            measure_postgres!("batch_insert_dividend_conversions", {
                 sqlx::query(INSERT_DIVIDEND_CONVERSIONS_SQL)
                     .bind(&source_tokens)
                     .bind(&dividend_tokens)
@@ -266,7 +266,7 @@ impl DividendController {
         let tx_indices: Vec<i32> = data.iter().map(|d| d.tx_index).collect();
 
         retry_query("dividend_merkle_roots", || async {
-            measure_postgres!("v2_batch_insert_dividend_merkle_roots", {
+            measure_postgres!("batch_insert_dividend_merkle_roots", {
                 sqlx::query(INSERT_DIVIDEND_MERKLE_ROOTS_SQL)
                     .bind(&merkle_roots)
                     .bind(&tx_hashes)
@@ -298,7 +298,7 @@ impl DividendController {
         let usd_values: Vec<&BigDecimal> = data.iter().map(|d| &d.usd_value).collect();
 
         retry_query("dividend_claims", || async {
-            measure_postgres!("v2_batch_insert_dividend_claims", {
+            measure_postgres!("batch_insert_dividend_claims", {
                 sqlx::query(INSERT_DIVIDEND_CLAIMS_SQL)
                     .bind(&holders)
                     .bind(&source_tokens)

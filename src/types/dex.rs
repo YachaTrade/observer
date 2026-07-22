@@ -1,17 +1,47 @@
 use bigdecimal::BigDecimal;
 use std::sync::Arc;
 
-use crate::types::legacy_curve::{Buy, Sell};
-
 #[derive(Debug, Clone)]
 pub enum DexEvent {
-    SwapBuy(Buy),
-    SwapSell(Sell),
+    SwapBuy(DexSwapBuy),
+    SwapSell(DexSwapSell),
     Sync(DexSync),
     RouterBuy(DexRouterBuy),
     RouterSell(DexRouterSell),
     Mint(DexMint),
     Burn(DexBurn),
+}
+
+#[derive(Debug, Clone)]
+pub struct DexSwapBuy {
+    pub sender: Arc<String>,
+    pub to: Option<Arc<String>>,
+    pub amount_in: Arc<BigDecimal>,
+    pub amount_out: Arc<BigDecimal>,
+    pub token: Arc<String>,
+    pub market: Arc<String>,
+    pub transaction_hash: Arc<String>,
+    pub block_number: u64,
+    pub block_timestamp: u64,
+    pub log_index: u64,
+    pub transaction_index: u64,
+    pub tx_sender: Arc<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DexSwapSell {
+    pub sender: Arc<String>,
+    pub to: Option<Arc<String>>,
+    pub amount_in: Arc<BigDecimal>,
+    pub amount_out: Arc<BigDecimal>,
+    pub token: Arc<String>,
+    pub market: Arc<String>,
+    pub transaction_hash: Arc<String>,
+    pub block_number: u64,
+    pub block_timestamp: u64,
+    pub log_index: u64,
+    pub transaction_index: u64,
+    pub tx_sender: Arc<String>,
 }
 
 impl DexEvent {
@@ -140,14 +170,14 @@ pub struct DexBurn {
     pub transaction_index: u64,
 }
 
-impl From<Buy> for DexEvent {
-    fn from(value: Buy) -> Self {
+impl From<DexSwapBuy> for DexEvent {
+    fn from(value: DexSwapBuy) -> Self {
         DexEvent::SwapBuy(value)
     }
 }
 
-impl From<Sell> for DexEvent {
-    fn from(value: Sell) -> Self {
+impl From<DexSwapSell> for DexEvent {
+    fn from(value: DexSwapSell) -> Self {
         DexEvent::SwapSell(value)
     }
 }
@@ -180,17 +210,4 @@ impl From<DexBurn> for DexEvent {
     fn from(value: DexBurn) -> Self {
         DexEvent::Burn(value)
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct SetFeeProtocol {
-    pub pool_id: Arc<String>,
-    pub fee_protocol0_old: u8,
-    pub fee_protocol1_old: u8,
-    pub fee_protocol0_new: u8,
-    pub fee_protocol1_new: u8,
-    pub transaction_hash: Arc<String>,
-    pub block_number: u64,
-    pub transaction_index: u64,
-    pub log_index: u64,
 }
