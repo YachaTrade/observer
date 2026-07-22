@@ -138,16 +138,27 @@ impl PoolController {
             attempt += 1;
             match measure_postgres!("pool_batch_insert", {
                 sqlx::query(BATCH_INSERT_POOLS_SQL)
-                .bind(&pool_ids).bind(&token0s).bind(&token1s)
-                .bind(&reserve0s).bind(&reserve1s).bind(&prices)
-                .bind(&created_ats).bind(&block_numbers).bind(&tx_hashes)
-                .execute(&self.db.pool)
-                .await
+                    .bind(&pool_ids)
+                    .bind(&token0s)
+                    .bind(&token1s)
+                    .bind(&reserve0s)
+                    .bind(&reserve1s)
+                    .bind(&prices)
+                    .bind(&created_ats)
+                    .bind(&block_numbers)
+                    .bind(&tx_hashes)
+                    .execute(&self.db.pool)
+                    .await
             }) {
                 Ok(_) => return Ok(()),
                 Err(e) => {
                     if attempt >= max_attempts {
-                        error!("[POOL] Failed to batch insert {} pools after {} attempts: {}", data.len(), attempt, e);
+                        error!(
+                            "[POOL] Failed to batch insert {} pools after {} attempts: {}",
+                            data.len(),
+                            attempt,
+                            e
+                        );
                         return Err(anyhow!("Failed to batch insert pools: {}", e));
                     }
                     let delay = Duration::from_millis(100).mul_f32(1.5_f32.powi(attempt - 1));
@@ -184,16 +195,29 @@ impl PoolController {
             attempt += 1;
             match measure_postgres!("pool_batch_update_reserves", {
                 sqlx::query(BATCH_UPDATE_POOL_RESERVES_SQL)
-                .bind(&pool_ids).bind(&reserve0s).bind(&reserve1s).bind(&prices).bind(&values)
-                .bind(&token0_price_usds).bind(&token1_price_usds)
-                .bind(&timestamps).bind(&block_numbers).bind(&tx_indexes).bind(&log_indexes)
-                .execute(&self.db.pool)
-                .await
+                    .bind(&pool_ids)
+                    .bind(&reserve0s)
+                    .bind(&reserve1s)
+                    .bind(&prices)
+                    .bind(&values)
+                    .bind(&token0_price_usds)
+                    .bind(&token1_price_usds)
+                    .bind(&timestamps)
+                    .bind(&block_numbers)
+                    .bind(&tx_indexes)
+                    .bind(&log_indexes)
+                    .execute(&self.db.pool)
+                    .await
             }) {
                 Ok(_) => return Ok(()),
                 Err(e) => {
                     if attempt >= max_attempts {
-                        error!("[POOL] Failed to batch update {} pool reserves after {} attempts: {}", data.len(), attempt, e);
+                        error!(
+                            "[POOL] Failed to batch update {} pool reserves after {} attempts: {}",
+                            data.len(),
+                            attempt,
+                            e
+                        );
                         return Err(anyhow!("Failed to batch update pool reserves: {}", e));
                     }
                     let delay = Duration::from_millis(100).mul_f32(1.5_f32.powi(attempt - 1));

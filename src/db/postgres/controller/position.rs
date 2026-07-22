@@ -137,10 +137,8 @@ impl PositionController {
             let log_indices: Vec<i32> = histories.iter().map(|h| h.log_index as i32).collect();
             let created_ats: Vec<i64> =
                 histories.iter().map(|h| h.block_timestamp as i64).collect();
-            let transfer_types: Vec<&str> = histories
-                .iter()
-                .map(|h| h.transfer_type.as_str())
-                .collect();
+            let transfer_types: Vec<&str> =
+                histories.iter().map(|h| h.transfer_type.as_str()).collect();
             let counterparties: Vec<Option<&str>> = histories
                 .iter()
                 .map(|h| h.sender_address.as_ref().map(|c| c.as_str()))
@@ -220,7 +218,7 @@ impl PositionController {
                                     block_timestamp: created_at as u64,
                                     tx_index: tx_index as u64,
                                     log_index: log_index as u64,
-                                    transfer_type: TransferType::from_str(
+                                    transfer_type: TransferType::from_db_value(
                                         transfer_type.as_deref().unwrap_or("other"),
                                     ),
                                     sender_address: sender_address.map(Arc::new),

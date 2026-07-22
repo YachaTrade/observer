@@ -5,8 +5,6 @@
 - **Deployment address**: `BONDING_CURVE`
 - **Dependency**: Price
 
-> Implementation provenance: the active Curve stream uses `abi/BondingCurve.json`.
-
 Curve events are sorted by block number, transaction index, and log index, grouped by token, and written in batches.
 
 ## Create
@@ -23,7 +21,7 @@ Create announces a new token and its bonding-curve market.
 | `virtualQuoteReserve`, `virtualTokenReserve` | initial pricing reserves |
 | `minTokenReserve` | graduation threshold reserve |
 
-Stream processing validates the configured vanity suffix, resolves the transaction actor, and registers the token, pool, creator, and quote-token cache entries. Receive processing calculates the initial quote price and writes token, market, chart, point, and fee-history rows. Create and graduate point values use `CREATE_FEE_AMOUNT` and `GRADUATE_FEE_AMOUNT`, respectively.
+Stream processing validates the configured vanity suffix, resolves the transaction actor, and registers the token, pool, creator, and quote-token cache entries. Receive processing calculates the initial quote price and writes token, market, chart, point, and fee-history rows. Create and graduate point values use `DEPLOY_FE_AMOUNT` and `GRADUATE_FEE_AMOUNT`, respectively.
 
 ## Buy and Sell
 

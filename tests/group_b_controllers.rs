@@ -6,11 +6,11 @@ mod common;
 
 use anyhow::Result;
 use common::{
-    call_batch_handle_burns, call_batch_insert_burns_mint, call_batch_insert_mints,
-    call_batch_insert_pools, call_batch_insert_tokens_and_markets, call_batch_update_pool_reserves,
-    call_handle_burn, call_handle_curve_sync, call_handle_dex_sync, call_handle_lp_allocate,
-    call_handle_lp_collect, call_batch_handle_graduates, count_lp_allocate, count_lp_collect,
-    count_rows_for_token, count_token_metadata, get_is_graduated, get_market_row,
+    call_batch_handle_burns, call_batch_handle_graduates, call_batch_insert_burns_mint,
+    call_batch_insert_mints, call_batch_insert_pools, call_batch_insert_tokens_and_markets,
+    call_batch_update_pool_reserves, call_handle_burn, call_handle_curve_sync,
+    call_handle_dex_sync, call_handle_lp_allocate, call_handle_lp_collect, count_lp_allocate,
+    count_lp_collect, count_rows_for_token, count_token_metadata, get_is_graduated, get_market_row,
     get_pool_row, get_token_count, get_total_supply, insert_market, insert_token,
     insert_token_metadata, setup_test_db,
 };
@@ -71,17 +71,25 @@ async fn token_batch_insert_tokens_and_markets_happy_path() -> Result<()> {
     let db = setup_test_db().await?;
 
     call_batch_insert_tokens_and_markets(
-        &db.pool, TOKEN, "MyCoin", "MC", CREATOR, "CURVE",
+        &db.pool,
+        TOKEN,
+        "MyCoin",
+        "MC",
+        CREATOR,
+        "CURVE",
         "1000", // virtual_native
         "500",  // virtual_token
-        100, 1_700_000_000, "0xtx1", 0, 0,
+        100,
+        1_700_000_000,
+        "0xtx1",
+        0,
+        0,
     )
     .await?;
 
     // Token row exists
     let supply = get_total_supply(&db.pool, TOKEN).await?;
     assert_eq!(supply, "1000000000000000000000000000");
-
 
     // Market row exists with correct price (1000/500 = 2.0000000000)
     let m = get_market_row(&db.pool, TOKEN).await?;
@@ -93,7 +101,10 @@ async fn token_batch_insert_tokens_and_markets_happy_path() -> Result<()> {
     assert_eq!(rt, "500");
 
     // price_history row exists
-    assert_eq!(count_rows_for_token(&db.pool, "price_history", TOKEN).await?, 1);
+    assert_eq!(
+        count_rows_for_token(&db.pool, "price_history", TOKEN).await?,
+        1
+    );
 
     // token_count trigger: total_count should be 1
     let (total, _) = get_token_count(&db.pool).await?;
@@ -107,14 +118,36 @@ async fn token_batch_insert_duplicate_no_op() -> Result<()> {
     let db = setup_test_db().await?;
 
     call_batch_insert_tokens_and_markets(
-        &db.pool, TOKEN, "MyCoin", "MC", CREATOR, "CURVE",
-        "1000", "500", 100, 1_700_000_000, "0xtx1", 0, 0,
+        &db.pool,
+        TOKEN,
+        "MyCoin",
+        "MC",
+        CREATOR,
+        "CURVE",
+        "1000",
+        "500",
+        100,
+        1_700_000_000,
+        "0xtx1",
+        0,
+        0,
     )
     .await?;
     // Same token_id, different tx
     call_batch_insert_tokens_and_markets(
-        &db.pool, TOKEN, "MyCoin2", "MC2", CREATOR, "CURVE",
-        "2000", "1000", 101, 1_700_000_001, "0xtx2", 0, 0,
+        &db.pool,
+        TOKEN,
+        "MyCoin2",
+        "MC2",
+        CREATOR,
+        "CURVE",
+        "2000",
+        "1000",
+        101,
+        1_700_000_001,
+        "0xtx2",
+        0,
+        0,
     )
     .await?;
 
@@ -135,8 +168,15 @@ async fn market_curve_sync_insert() -> Result<()> {
     insert_token(&db.pool, TOKEN, CREATOR).await?;
 
     call_handle_curve_sync(
-        &db.pool, TOKEN, "0.5", "800", "400", "1.5", "0.5",
-        1_700_000_000, "CURVE",
+        &db.pool,
+        TOKEN,
+        "0.5",
+        "800",
+        "400",
+        "1.5",
+        "0.5",
+        1_700_000_000,
+        "CURVE",
     )
     .await?;
 
@@ -160,15 +200,29 @@ async fn market_curve_sync_update() -> Result<()> {
 
     // Initial insert
     call_handle_curve_sync(
-        &db.pool, TOKEN, "0.5", "800", "400", "1.5", "0.5",
-        1_700_000_000, "CURVE",
+        &db.pool,
+        TOKEN,
+        "0.5",
+        "800",
+        "400",
+        "1.5",
+        "0.5",
+        1_700_000_000,
+        "CURVE",
     )
     .await?;
 
     // Update with newer timestamp and higher price
     call_handle_curve_sync(
-        &db.pool, TOKEN, "0.8", "900", "500", "2.4", "0.8",
-        1_700_000_001, "CURVE",
+        &db.pool,
+        TOKEN,
+        "0.8",
+        "900",
+        "500",
+        "2.4",
+        "0.8",
+        1_700_000_001,
+        "CURVE",
     )
     .await?;
 
@@ -186,15 +240,29 @@ async fn market_curve_sync_older_timestamp_keeps_price() -> Result<()> {
     insert_token(&db.pool, TOKEN, CREATOR).await?;
 
     call_handle_curve_sync(
-        &db.pool, TOKEN, "0.8", "900", "500", "2.4", "0.8",
-        1_700_000_001, "CURVE",
+        &db.pool,
+        TOKEN,
+        "0.8",
+        "900",
+        "500",
+        "2.4",
+        "0.8",
+        1_700_000_001,
+        "CURVE",
     )
     .await?;
 
     // Older timestamp, higher ath_price_usd
     call_handle_curve_sync(
-        &db.pool, TOKEN, "0.3", "700", "300", "3.0", "0.3",
-        1_700_000_000, "CURVE",
+        &db.pool,
+        TOKEN,
+        "0.3",
+        "700",
+        "300",
+        "3.0",
+        "0.3",
+        1_700_000_000,
+        "CURVE",
     )
     .await?;
 
@@ -212,7 +280,13 @@ async fn market_dex_sync_update() -> Result<()> {
     insert_market(&db.pool, TOKEN, "DEX").await?;
 
     call_handle_dex_sync(
-        &db.pool, TOKEN, "1.5", "2000", "1000", "4.5", "1.5",
+        &db.pool,
+        TOKEN,
+        "1.5",
+        "2000",
+        "1000",
+        "4.5",
+        "1.5",
         1_700_000_000,
     )
     .await?;
@@ -232,12 +306,7 @@ async fn market_batch_handle_graduates() -> Result<()> {
     insert_token(&db.pool, TOKEN, CREATOR).await?;
     insert_market(&db.pool, TOKEN, "CURVE").await?;
 
-    let count = call_batch_handle_graduates(
-        &db.pool,
-        &[(TOKEN, POOL_ID)],
-        "DEX",
-    )
-    .await?;
+    let count = call_batch_handle_graduates(&db.pool, &[(TOKEN, POOL_ID)], "DEX").await?;
 
     assert_eq!(count, 1);
     assert!(get_is_graduated(&db.pool, TOKEN).await?);
@@ -257,8 +326,19 @@ async fn mint_batch_insert_happy_path() -> Result<()> {
     let db = setup_test_db().await?;
 
     call_batch_insert_mints(
-        &db.pool, TOKEN, ALICE, TOKEN, "100", "50", "1000", "500",
-        1_700_000_000, "0xtx1", 100, 0, 0,
+        &db.pool,
+        TOKEN,
+        ALICE,
+        TOKEN,
+        "100",
+        "50",
+        "1000",
+        "500",
+        1_700_000_000,
+        "0xtx1",
+        100,
+        0,
+        0,
     )
     .await?;
 
@@ -272,14 +352,36 @@ async fn mint_batch_insert_duplicate_no_op() -> Result<()> {
     let db = setup_test_db().await?;
 
     call_batch_insert_mints(
-        &db.pool, TOKEN, ALICE, TOKEN, "100", "50", "1000", "500",
-        1_700_000_000, "0xtx1", 100, 0, 0,
+        &db.pool,
+        TOKEN,
+        ALICE,
+        TOKEN,
+        "100",
+        "50",
+        "1000",
+        "500",
+        1_700_000_000,
+        "0xtx1",
+        100,
+        0,
+        0,
     )
     .await?;
     // Same PK (token_id, transaction_hash, tx_index, log_index)
     call_batch_insert_mints(
-        &db.pool, TOKEN, ALICE, TOKEN, "999", "999", "999", "999",
-        1_700_000_000, "0xtx1", 100, 0, 0,
+        &db.pool,
+        TOKEN,
+        ALICE,
+        TOKEN,
+        "999",
+        "999",
+        "999",
+        "999",
+        1_700_000_000,
+        "0xtx1",
+        100,
+        0,
+        0,
     )
     .await?;
 
@@ -293,8 +395,19 @@ async fn mint_batch_insert_burns_happy_path() -> Result<()> {
     let db = setup_test_db().await?;
 
     call_batch_insert_burns_mint(
-        &db.pool, TOKEN, ALICE, TOKEN, "100", "50", "1000", "500",
-        1_700_000_000, "0xtx1", 100, 0, 0,
+        &db.pool,
+        TOKEN,
+        ALICE,
+        TOKEN,
+        "100",
+        "50",
+        "1000",
+        "500",
+        1_700_000_000,
+        "0xtx1",
+        100,
+        0,
+        0,
     )
     .await?;
 
@@ -312,10 +425,7 @@ async fn burn_handle_burn_happy_path() -> Result<()> {
     let db = setup_test_db().await?;
     insert_token(&db.pool, TOKEN, CREATOR).await?;
 
-    call_handle_burn(
-        &db.pool, ALICE, TOKEN, "100", "0xtx1", 0, 1_700_000_000,
-    )
-    .await?;
+    call_handle_burn(&db.pool, ALICE, TOKEN, "100", "0xtx1", 0, 1_700_000_000).await?;
 
     assert_eq!(
         count_rows_for_token(&db.pool, "burn_history", TOKEN).await?,
@@ -332,15 +442,9 @@ async fn burn_handle_burn_duplicate_no_op() -> Result<()> {
     let db = setup_test_db().await?;
     insert_token(&db.pool, TOKEN, CREATOR).await?;
 
-    call_handle_burn(
-        &db.pool, ALICE, TOKEN, "100", "0xtx1", 0, 1_700_000_000,
-    )
-    .await?;
+    call_handle_burn(&db.pool, ALICE, TOKEN, "100", "0xtx1", 0, 1_700_000_000).await?;
     // Same PK
-    call_handle_burn(
-        &db.pool, ALICE, TOKEN, "100", "0xtx1", 0, 1_700_000_000,
-    )
-    .await?;
+    call_handle_burn(&db.pool, ALICE, TOKEN, "100", "0xtx1", 0, 1_700_000_000).await?;
 
     assert_eq!(
         count_rows_for_token(&db.pool, "burn_history", TOKEN).await?,
@@ -356,10 +460,7 @@ async fn burn_batch_handle_burns_happy_path() -> Result<()> {
     let db = setup_test_db().await?;
     insert_token(&db.pool, TOKEN, CREATOR).await?;
 
-    call_batch_handle_burns(
-        &db.pool, TOKEN, ALICE, "200", "0xtx1", 0, 1_700_000_000,
-    )
-    .await?;
+    call_batch_handle_burns(&db.pool, TOKEN, ALICE, "200", "0xtx1", 0, 1_700_000_000).await?;
 
     assert_eq!(
         count_rows_for_token(&db.pool, "burn_history", TOKEN).await?,
@@ -379,8 +480,16 @@ async fn pool_batch_insert_happy_path() -> Result<()> {
     let db = setup_test_db().await?;
 
     call_batch_insert_pools(
-        &db.pool, POOL_ID, TOKEN, TOKEN2, "1000", "500", "2.0",
-        1_700_000_000, 100, "0xtx1",
+        &db.pool,
+        POOL_ID,
+        TOKEN,
+        TOKEN2,
+        "1000",
+        "500",
+        "2.0",
+        1_700_000_000,
+        100,
+        "0xtx1",
     )
     .await?;
 
@@ -399,13 +508,29 @@ async fn pool_batch_insert_duplicate_no_op() -> Result<()> {
     let db = setup_test_db().await?;
 
     call_batch_insert_pools(
-        &db.pool, POOL_ID, TOKEN, TOKEN2, "1000", "500", "2.0",
-        1_700_000_000, 100, "0xtx1",
+        &db.pool,
+        POOL_ID,
+        TOKEN,
+        TOKEN2,
+        "1000",
+        "500",
+        "2.0",
+        1_700_000_000,
+        100,
+        "0xtx1",
     )
     .await?;
     call_batch_insert_pools(
-        &db.pool, POOL_ID, TOKEN, TOKEN2, "9999", "9999", "9.0",
-        1_700_000_001, 101, "0xtx2",
+        &db.pool,
+        POOL_ID,
+        TOKEN,
+        TOKEN2,
+        "9999",
+        "9999",
+        "9.0",
+        1_700_000_001,
+        101,
+        "0xtx2",
     )
     .await?;
 
@@ -420,15 +545,21 @@ async fn pool_batch_update_reserves() -> Result<()> {
     let db = setup_test_db().await?;
 
     call_batch_insert_pools(
-        &db.pool, POOL_ID, TOKEN, TOKEN2, "1000", "500", "2.0",
-        1_700_000_000, 100, "0xtx1",
+        &db.pool,
+        POOL_ID,
+        TOKEN,
+        TOKEN2,
+        "1000",
+        "500",
+        "2.0",
+        1_700_000_000,
+        100,
+        "0xtx1",
     )
     .await?;
 
-    call_batch_update_pool_reserves(
-        &db.pool, POOL_ID, "2000", "1000", "3.0", 1_700_000_001,
-    )
-    .await?;
+    call_batch_update_pool_reserves(&db.pool, POOL_ID, "2000", "1000", "3.0", 1_700_000_001)
+        .await?;
 
     let p = get_pool_row(&db.pool, POOL_ID).await?.unwrap();
     assert_eq!(p.0, "2000");
@@ -446,28 +577,34 @@ async fn pool_batch_update_reserves_stale_sync_rejected() -> Result<()> {
     let db = setup_test_db().await?;
 
     call_batch_insert_pools(
-        &db.pool, POOL_ID, TOKEN, TOKEN2, "1000", "500", "2.0",
-        1_700_000_000, 100, "0xtx1",
+        &db.pool,
+        POOL_ID,
+        TOKEN,
+        TOKEN2,
+        "1000",
+        "500",
+        "2.0",
+        1_700_000_000,
+        100,
+        "0xtx1",
     )
     .await?;
 
     // Newer Sync at t+5: should take effect.
-    call_batch_update_pool_reserves(
-        &db.pool, POOL_ID, "2000", "1000", "3.0", 1_700_000_005,
-    )
-    .await?;
+    call_batch_update_pool_reserves(&db.pool, POOL_ID, "2000", "1000", "3.0", 1_700_000_005)
+        .await?;
 
     // Out-of-order stale Sync at t+1: must NOT regress reserves/price.
-    call_batch_update_pool_reserves(
-        &db.pool, POOL_ID, "999", "999", "9.0", 1_700_000_001,
-    )
-    .await?;
+    call_batch_update_pool_reserves(&db.pool, POOL_ID, "999", "999", "9.0", 1_700_000_001).await?;
 
     let p = get_pool_row(&db.pool, POOL_ID).await?.unwrap();
     assert_eq!(p.0, "2000", "reserve0 must stay at newer value");
     assert_eq!(p.1, "1000", "reserve1 must stay at newer value");
     assert_eq!(p.2, "3.0", "price must stay at newer value");
-    assert_eq!(p.3, 1_700_000_005_i64, "latest_trade_at must stay at newest");
+    assert_eq!(
+        p.3, 1_700_000_005_i64,
+        "latest_trade_at must stay at newest"
+    );
     Ok(())
 }
 
@@ -485,8 +622,16 @@ async fn pool_batch_update_reserves_freshness_breaks_timestamp_tie() -> Result<(
 
     let db = setup_test_db().await?;
     call_batch_insert_pools(
-        &db.pool, POOL_ID, TOKEN, TOKEN2, "1000", "500", "2.0",
-        1_700_000_000, 100, "0xtx1",
+        &db.pool,
+        POOL_ID,
+        TOKEN,
+        TOKEN2,
+        "1000",
+        "500",
+        "2.0",
+        1_700_000_000,
+        100,
+        "0xtx1",
     )
     .await?;
 
@@ -501,6 +646,8 @@ async fn pool_batch_update_reserves_freshness_breaks_timestamp_tie() -> Result<(
     let r1s = vec![parse("4444"), parse("5555")];
     let prices = vec![parse("1.0"), parse("2.0")];
     let values: Vec<Option<BigDecimal>> = vec![None, None];
+    let token0_price_usds: Vec<Option<BigDecimal>> = vec![None, None];
+    let token1_price_usds: Vec<Option<BigDecimal>> = vec![None, None];
     let block_timestamps = vec![1_700_000_500_i64, 1_700_000_500_i64]; // identical
     let block_numbers = vec![200_i64, 200_i64]; // identical
     let tx_indexes = vec![0_i32, 0_i32]; // identical
@@ -511,6 +658,8 @@ async fn pool_batch_update_reserves_freshness_breaks_timestamp_tie() -> Result<(
         .bind(&r1s)
         .bind(&prices)
         .bind(&values)
+        .bind(&token0_price_usds)
+        .bind(&token1_price_usds)
         .bind(&block_timestamps)
         .bind(&block_numbers)
         .bind(&tx_indexes)
@@ -519,8 +668,14 @@ async fn pool_batch_update_reserves_freshness_breaks_timestamp_tie() -> Result<(
         .await?;
 
     let p = get_pool_row(&db.pool, POOL_ID).await?.unwrap();
-    assert_eq!(p.0, "9999", "reserve0 must come from the highest log_index row");
-    assert_eq!(p.1, "5555", "reserve1 must come from the same row as reserve0");
+    assert_eq!(
+        p.0, "9999",
+        "reserve0 must come from the highest log_index row"
+    );
+    assert_eq!(
+        p.1, "5555",
+        "reserve1 must come from the same row as reserve0"
+    );
     assert_eq!(p.2, "2.0", "price must come from the same row");
     Ok(())
 }
@@ -534,10 +689,7 @@ async fn pool_batch_update_reserves_freshness_breaks_timestamp_tie() -> Result<(
 async fn lp_allocate_happy_path() -> Result<()> {
     let db = setup_test_db().await?;
 
-    call_handle_lp_allocate(
-        &db.pool, TOKEN, "500", "250", "0xtx1", 1_700_000_000,
-    )
-    .await?;
+    call_handle_lp_allocate(&db.pool, TOKEN, "500", "250", "0xtx1", 1_700_000_000).await?;
 
     assert_eq!(count_lp_allocate(&db.pool, TOKEN).await?, 1);
     Ok(())
@@ -548,14 +700,8 @@ async fn lp_allocate_happy_path() -> Result<()> {
 async fn lp_allocate_duplicate_no_op() -> Result<()> {
     let db = setup_test_db().await?;
 
-    call_handle_lp_allocate(
-        &db.pool, TOKEN, "500", "250", "0xtx1", 1_700_000_000,
-    )
-    .await?;
-    call_handle_lp_allocate(
-        &db.pool, TOKEN, "999", "999", "0xtx1", 1_700_000_001,
-    )
-    .await?;
+    call_handle_lp_allocate(&db.pool, TOKEN, "500", "250", "0xtx1", 1_700_000_000).await?;
+    call_handle_lp_allocate(&db.pool, TOKEN, "999", "999", "0xtx1", 1_700_000_001).await?;
 
     assert_eq!(count_lp_allocate(&db.pool, TOKEN).await?, 1);
     Ok(())
@@ -567,8 +713,17 @@ async fn lp_collect_happy_path() -> Result<()> {
     let db = setup_test_db().await?;
 
     call_handle_lp_collect(
-        &db.pool, TOKEN, "500", "250", "100", "50", "25",
-        "0xtx1", 0, 0, 1_700_000_000,
+        &db.pool,
+        TOKEN,
+        "500",
+        "250",
+        "100",
+        "50",
+        "25",
+        "0xtx1",
+        0,
+        0,
+        1_700_000_000,
     )
     .await?;
 
@@ -582,13 +737,31 @@ async fn lp_collect_duplicate_no_op() -> Result<()> {
     let db = setup_test_db().await?;
 
     call_handle_lp_collect(
-        &db.pool, TOKEN, "500", "250", "100", "50", "25",
-        "0xtx1", 0, 0, 1_700_000_000,
+        &db.pool,
+        TOKEN,
+        "500",
+        "250",
+        "100",
+        "50",
+        "25",
+        "0xtx1",
+        0,
+        0,
+        1_700_000_000,
     )
     .await?;
     call_handle_lp_collect(
-        &db.pool, TOKEN, "999", "999", "999", "999", "999",
-        "0xtx1", 0, 0, 1_700_000_001,
+        &db.pool,
+        TOKEN,
+        "999",
+        "999",
+        "999",
+        "999",
+        "999",
+        "0xtx1",
+        0,
+        0,
+        1_700_000_001,
     )
     .await?;
 

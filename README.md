@@ -1,22 +1,22 @@
-# Nad.fun Observer
+# GIWA Observer
 
-Nad.fun Observer indexes the active GIWA contract events and common price/token streams into PostgreSQL, with Redis-backed caches and Prometheus metrics.
-
-Deployment status, required configuration, database constraints, and known baseline issues are summarized in [HANDOFF.md](HANDOFF.md).
+GIWA Observer indexes active GIWA contract events and shared price/token streams into PostgreSQL, with Redis-backed caches and Prometheus metrics.
 
 ## Runtime contract
 
-The runtime starts exactly seven generic event handlers. Checkpoint names are stable public identifiers; implementation versions describe the selected contract ABI, not separate runtime streams.
+The runtime starts exactly seven event handlers. Their checkpoint names are stable public identifiers.
 
-| Event | Contract implementation | Checkpoint |
+| Handler | Source | Checkpoint |
 | --- | --- | --- |
-| Curve | v2 BondingCurve ABI | `curve` |
+| Curve | BondingCurve | `curve` |
 | Dex | GIWA canonical Uniswap V3 pool + GiwaRouter Buy/Sell(graduated) | `dex` |
-| LpManager | v1 LPManager ABI | `lp_manager` |
-| Vault | v2 vault ABIs | `vault` |
-| VaultRegistry | v2 VaultRegistry ABI | `vault_registry` |
-| Token | common ERC-20 stream | `token` |
-| Price | common quote-price stream | `price` |
+| LpManager | LPManager | `lp_manager` |
+| Vault | BurnVault, LPVault, CreatorFeeVault, GiftVault, and DividendVault | `vault` |
+| VaultRegistry | VaultRegistry | `vault_registry` |
+| Token | ERC-20 transfers and balances | `token` |
+| Price | quote-token prices | `price` |
+
+PriceUsd has the stable `price_usd` checkpoint and an implementation module, but it is dormant: the runtime does not start a PriceUsd handler.
 
 Each handler follows the same pipeline:
 
@@ -30,7 +30,7 @@ Detailed event behavior is documented in [docs/event-indexing.md](docs/event-ind
 
 ## Deployment variables
 
-The selected GIWA contract implementations and fee behavior use these deployment variables:
+The active GIWA handlers and fee behavior use these deployment variables:
 
 ```dotenv
 BONDING_CURVE=0x...
@@ -49,7 +49,7 @@ MAIN_RPC_URL=...
 SUB_RPC_URL_1=...
 SUB_RPC_URL_2=...
 MODE=testnet
-CREATE_FEE_AMOUNT=...
+DEPLOY_FE_AMOUNT=...
 GRADUATE_FEE_AMOUNT=...
 BONDING_CURVE_FEE_RATE=...
 DEX_ROUTER_FEE_RATE=...
@@ -61,12 +61,10 @@ Address values are parsed and normalized at startup. Missing or invalid required
 
 ## Database write contract
 
-New GIWA writes use:
+GIWA writes use:
 
 - market values `CURVE` and `DEX`
 - Curve fee values `curve_buy` and `curve_sell`
-
-Existing MON rows and existing versioned database values are intentionally unchanged. The feature does not rewrite historical data.
 
 ## Requirements and commands
 

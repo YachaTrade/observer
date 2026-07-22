@@ -9,7 +9,12 @@ use std::str::FromStr;
 fn normalize_required_env_address(var: &str) -> String {
     let raw = env::var(var).unwrap_or_else(|_| panic!("{} must be set", var));
     raw.parse::<Address>()
-        .unwrap_or_else(|e| panic!("{} env var is not a valid EVM address '{}': {}", var, raw, e))
+        .unwrap_or_else(|e| {
+            panic!(
+                "{} env var is not a valid EVM address '{}': {}",
+                var, raw, e
+            )
+        })
         .to_string()
 }
 
@@ -99,9 +104,9 @@ lazy_static! {
     )
     .unwrap();
 
-    pub static ref CREATE_FEE_AMOUNT: BigDecimal = BigDecimal::from_str(
-        &env::var("CREATE_FEE_AMOUNT")
-            .expect("CREATE_FEE_AMOUNT must be set")
+    pub static ref DEPLOY_FE_AMOUNT: BigDecimal = BigDecimal::from_str(
+        &env::var("DEPLOY_FE_AMOUNT")
+            .expect("DEPLOY_FE_AMOUNT must be set")
             .replace("_", ""),
     )
     .unwrap();
@@ -228,12 +233,11 @@ static QUOTE_CONFIGS_STORE: OnceLock<Vec<QuoteConfig>> = OnceLock::new();
 /// `alloy::primitives::Address` parse + Display, same as all other
 /// address statics in this module.
 pub async fn init_quote_configs_from_db(pool: &sqlx::PgPool) -> anyhow::Result<()> {
-    let rows: Vec<(String, String, i32)> = sqlx::query_as(
-        "SELECT quote_id, pyth_feed_id, decimals FROM quote_token",
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| anyhow::anyhow!("failed to load quote_token table: {}", e))?;
+    let rows: Vec<(String, String, i32)> =
+        sqlx::query_as("SELECT quote_id, pyth_feed_id, decimals FROM quote_token")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to load quote_token table: {}", e))?;
 
     if rows.is_empty() {
         panic!("quote_token table is empty — at least one quote (e.g. WETH) must be seeded");
@@ -242,13 +246,17 @@ pub async fn init_quote_configs_from_db(pool: &sqlx::PgPool) -> anyhow::Result<(
     let configs: Vec<QuoteConfig> = rows
         .into_iter()
         .map(|(quote_id, pyth_feed_id, decimals)| {
-            let address: Address = quote_id
-                .parse()
-                .unwrap_or_else(|e| panic!("quote_token.quote_id '{}' is not a valid address: {}", quote_id, e));
+            let address: Address = quote_id.parse().unwrap_or_else(|e| {
+                panic!(
+                    "quote_token.quote_id '{}' is not a valid address: {}",
+                    quote_id, e
+                )
+            });
             QuoteConfig {
                 address: address.to_string(),
                 pyth_feed_id,
-                decimals: BigDecimal::from_str(&format!("1{}", "0".repeat(decimals as usize))).unwrap(),
+                decimals: BigDecimal::from_str(&format!("1{}", "0".repeat(decimals as usize)))
+                    .unwrap(),
             }
         })
         .collect();
@@ -256,7 +264,10 @@ pub async fn init_quote_configs_from_db(pool: &sqlx::PgPool) -> anyhow::Result<(
     tracing::info!(
         "[CONFIG] loaded {} quote configs from DB: {:?}",
         configs.len(),
-        configs.iter().map(|c| c.address.as_str()).collect::<Vec<_>>()
+        configs
+            .iter()
+            .map(|c| c.address.as_str())
+            .collect::<Vec<_>>()
     );
 
     QUOTE_CONFIGS_STORE
@@ -276,10 +287,9 @@ pub fn quote_configs() -> &'static Vec<QuoteConfig> {
 
 /// Get decimals for a quote token registered in `quote_token` table.
 ///
-/// Lookup is case-insensitive — handles caller-supplied quote_id that may
-/// be lowercase (legacy market.quote_id rows from LEAST/LOWER backfill) vs
-/// QUOTE_CONFIGS env values stored in EIP-55 checksum form. Mirrors the
-/// d2e5b7c hotfix on [`is_quote_token`].
+/// Lookup is case-insensitive so caller-supplied quote IDs resolve against
+/// quote configurations stored in canonical EIP-55 checksum form regardless
+/// of their input hex casing. This matches [`is_quote_token`].
 ///
 /// **Panics** if `quote_id` is not present. Any failure here indicates a
 /// bug in the upstream quote_id resolution or a missing row in the
@@ -346,11 +356,12 @@ mod tests {
     }
 
     /// Mirrors the production `find` predicate in [`get_quote_decimals`] /
-    /// [`is_quote_token`]. Both must use case-insensitive matching so legacy
-    /// lowercase market.quote_id rows resolve against EIP-55 checksum
-    /// QUOTE_CONFIGS entries (d2e5b7c hotfix root cause).
+    /// [`is_quote_token`]. Both use case-insensitive matching so every valid
+    /// hex casing resolves against EIP-55 checksum quote configurations.
     fn matches_quote(configs: &[QuoteConfig], quote_id: &str) -> bool {
-        configs.iter().any(|q| q.address.eq_ignore_ascii_case(quote_id))
+        configs
+            .iter()
+            .any(|q| q.address.eq_ignore_ascii_case(quote_id))
     }
 
     #[test]
@@ -360,12 +371,24 @@ mod tests {
         let configs = vec![cfg("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", 18)];
 
         // Checksum query (canonical) — must hit.
-        assert!(matches_quote(&configs, "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"));
-        // Lowercase query (legacy market.quote_id from LEAST/LOWER backfill) — must hit.
-        assert!(matches_quote(&configs, "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"));
+        assert!(matches_quote(
+            &configs,
+            "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+        ));
+        // The same address in lowercase must hit.
+        assert!(matches_quote(
+            &configs,
+            "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+        ));
         // Uppercase query (paranoia) — must hit.
-        assert!(matches_quote(&configs, "0xC02AAA39B223FE8D0A0E5C4F27EAD9083C756CC2"));
+        assert!(matches_quote(
+            &configs,
+            "0xC02AAA39B223FE8D0A0E5C4F27EAD9083C756CC2"
+        ));
         // Unrelated address — must miss.
-        assert!(!matches_quote(&configs, "0x0000000000000000000000000000000000000001"));
+        assert!(!matches_quote(
+            &configs,
+            "0x0000000000000000000000000000000000000001"
+        ));
     }
 }

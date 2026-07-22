@@ -2,7 +2,6 @@ use bigdecimal::BigDecimal;
 use std::sync::Arc;
 
 // Mirror of GiftVault.Platform (solidity enum: GitHub=0, X=1).
-// Source: nadfun-contract-v2/src/vault/GiftVault.sol
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum GiftPlatform {

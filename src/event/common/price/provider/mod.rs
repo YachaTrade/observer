@@ -53,7 +53,7 @@ pub trait PriceProvider: Send + Sync {
 /// Build the provider selected by runtime env (`MODE`).
 ///
 /// - `MODE=testnet` → [`mock::MockProvider`] with a fixed 0.03 price,
-///   preserving the legacy testnet hardcoded value.
+///   preserving the configured testnet fallback value.
 /// - otherwise      → [`pyth::PythProvider`] backed by the Pyth Hermes API.
 pub fn build_provider() -> Result<Arc<dyn PriceProvider>> {
     // `PRICE_MODE` overrides the shared `MODE`; default to mainnet.

@@ -32,6 +32,19 @@ fn main_wires_the_selected_implementations_to_generic_events() {
 }
 
 #[test]
+fn price_usd_is_defined_but_not_spawned() {
+    let main = include_str!("../src/main.rs");
+    let common = include_str!("../src/event/common/mod.rs");
+    let sync = include_str!("../src/sync/mod.rs");
+
+    assert!(common.contains("pub mod price_usd;"));
+    assert!(sync.contains("PriceUsd"));
+    assert!(sync.contains("EventType::PriceUsd => \"price_usd\""));
+    assert!(!main.contains("PriceUsdEventHandler"));
+    assert!(!main.contains("EventType::PriceUsd"));
+}
+
+#[test]
 fn token_stream_filters_balances_by_token_table_membership() {
     let stream = include_str!("../src/event/common/token/stream.rs");
 
@@ -60,7 +73,7 @@ fn configuration_uses_only_generic_giwa_names() {
         "\"GIFT_VAULT\"",
         "\"DIVIDEND_VAULT\"",
         "\"VAULT_REGISTRY\"",
-        "\"CREATE_FEE_AMOUNT\"",
+        "\"DEPLOY_FE_AMOUNT\"",
         "\"GRADUATE_FEE_AMOUNT\"",
         "\"BONDING_CURVE_FEE_RATE\"",
         "\"DEX_ROUTER_FEE_RATE\"",
@@ -69,6 +82,7 @@ fn configuration_uses_only_generic_giwa_names() {
     }
 
     for forbidden in [
+        "\"CREATE_FEE_AMOUNT\"",
         "V1_BONDING_CURVE",
         "V1_DEX_FACTORY",
         "V1_DEX_ROUTER",

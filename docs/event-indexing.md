@@ -1,20 +1,20 @@
-# Event indexing guide
+# GIWA Observer event indexing guide
 
-Observer indexes seven public GIWA event streams. Events within a batch are ordered by `(block_number, transaction_index, log_index)` before receive-side processing.
+GIWA Observer runs seven event handlers. Events within a batch are ordered by `(block_number, transaction_index, log_index)` before receive-side processing.
 
 ## Active streams
 
-| Event | Contract implementation | Checkpoint |
+| Handler | Source | Checkpoint |
 | --- | --- | --- |
-| Curve | v2 BondingCurve ABI | `curve` |
+| Curve | BondingCurve | `curve` |
 | Dex | GIWA canonical Uniswap V3 pool + GiwaRouter Buy/Sell(graduated) | `dex` |
-| LpManager | v1 LPManager ABI | `lp_manager` |
-| Vault | v2 vault ABIs | `vault` |
-| VaultRegistry | v2 VaultRegistry ABI | `vault_registry` |
-| Token | common ERC-20 stream | `token` |
-| Price | common quote-price stream | `price` |
+| LpManager | LPManager | `lp_manager` |
+| Vault | BurnVault, LPVault, CreatorFeeVault, GiftVault, and DividendVault | `vault` |
+| VaultRegistry | VaultRegistry | `vault_registry` |
+| Token | ERC-20 transfers and balances | `token` |
+| Price | quote-token prices | `price` |
 
-Contract implementation versions only record ABI provenance. Runtime handlers, coordination, checkpoints, and operational metrics use the generic Event and Checkpoint values above.
+PriceUsd retains the `price_usd` event type, checkpoint, and implementation module, but it is dormant and is not started by the runtime.
 
 ## Stream and receive ordering
 
@@ -34,7 +34,7 @@ VaultRegistry (independent, admin-driven)
 
 ## Deployment variables
 
-Only the active implementation selectors and fee values are documented as deployment variables:
+The active handler addresses and fee values use these deployment variables:
 
 ```dotenv
 BONDING_CURVE=0x...
@@ -53,7 +53,7 @@ MAIN_RPC_URL=...
 SUB_RPC_URL_1=...
 SUB_RPC_URL_2=...
 MODE=testnet
-CREATE_FEE_AMOUNT=...
+DEPLOY_FE_AMOUNT=...
 GRADUATE_FEE_AMOUNT=...
 BONDING_CURVE_FEE_RATE=...
 DEX_ROUTER_FEE_RATE=...
@@ -62,8 +62,6 @@ DEX_ROUTER_FEE_RATE=...
 ## Persistence contract
 
 Market values are `CURVE` while a token trades on the bonding curve and `DEX` after graduation or for Dex trades. Curve fee history uses `curve_buy` and `curve_sell`.
-
-Existing MON rows and existing versioned database values are intentionally unchanged. No historical row rewrite is part of this runtime selection.
 
 ## Event behavior
 
@@ -75,7 +73,7 @@ See [Curve](event/curve.md) for fields and processing detail.
 
 ### Dex
 
-Dex indexes Swap, Mint, Burn, and SetFeeProtocol events from GIWA canonical Uniswap V3 pools plus GiwaRouter Buy/Sell events where `graduated=true`. Router events with `graduated=false` remain the Curve handler's responsibility and are skipped to prevent duplicate trades. Only known token pools are processed. Swap parsing synthesizes reserve/price state used by receive-side swap, market, chart, point, and fee-history writes.
+Dex indexes Swap, Mint, and Burn events from GIWA canonical Uniswap V3 pools plus GiwaRouter Buy/Sell events where `graduated=true`. Router events with `graduated=false` remain the Curve handler's responsibility and are skipped to prevent duplicate trades. Only known token pools are processed. Swap parsing synthesizes reserve/price state used by receive-side swap, market, chart, point, and fee-history writes.
 
 See [Dex](event/dex.md) for fields and processing detail.
 
@@ -99,7 +97,7 @@ See [VaultRegistry](event/vault_registry.md) for fields and processing detail.
 
 ### Token
 
-Token consumes common ERC-20 transfer/burn activity for contracts present in the `token` table, excludes configured system addresses, and updates balance/position history after Curve has created the token state.
+Token consumes ERC-20 transfer/burn activity for contracts present in the `token` table and updates balance/position history after Curve has created the token state. It does not maintain pair-share balances, LP-position history, or LP cost-basis tables.
 
 ### Price
 

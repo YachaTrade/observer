@@ -10,6 +10,7 @@ pub enum EventType {
     VaultRegistry,
     Token,
     Price,
+    PriceUsd,
 }
 
 impl EventType {
@@ -22,10 +23,11 @@ impl EventType {
             EventType::VaultRegistry => "vault_registry",
             EventType::Token => "token",
             EventType::Price => "price",
+            EventType::PriceUsd => "price_usd",
         }
     }
 
-    pub fn all() -> [EventType; 7] {
+    pub fn all() -> [EventType; 8] {
         [
             EventType::Curve,
             EventType::Dex,
@@ -34,6 +36,7 @@ impl EventType {
             EventType::VaultRegistry,
             EventType::Token,
             EventType::Price,
+            EventType::PriceUsd,
         ]
     }
 }
@@ -57,7 +60,7 @@ mod tests {
     use super::EventType;
 
     #[test]
-    fn giwa_event_types_are_exactly_the_seven_generic_streams() {
+    fn giwa_event_types_include_the_dormant_price_usd_checkpoint() {
         let names: Vec<&str> = EventType::all().iter().map(EventType::as_str).collect();
         assert_eq!(
             names,
@@ -69,6 +72,7 @@ mod tests {
                 "vault_registry",
                 "token",
                 "price",
+                "price_usd",
             ]
         );
     }

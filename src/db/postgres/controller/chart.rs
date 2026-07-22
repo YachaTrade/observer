@@ -9,8 +9,6 @@ use crate::{config::DEFAULT_DELAY, measure_postgres};
 
 use crate::db::postgres::PostgresDatabase;
 
-use crate::types::chart::ChartEvent;
-
 /// SQL for single price_history INSERT.
 pub const INSERT_PRICE_HISTORY_SQL: &str = r#"
     INSERT INTO price_history (
@@ -80,63 +78,6 @@ pub struct ChartController {
 impl ChartController {
     pub fn new(db: Arc<PostgresDatabase>) -> Self {
         ChartController { db }
-    }
-
-    // price_history INSERT
-    pub async fn handle_insert_price_history(&self, chart_event: &ChartEvent) -> Result<()> {
-        let max_attempts = 10;
-        let base_delay = Duration::from_millis(*DEFAULT_DELAY);
-        let mut attempt = 0;
-
-        loop {
-            attempt += 1;
-            match measure_postgres!("handle_insert_price_history", {
-                sqlx::query(INSERT_PRICE_HISTORY_SQL)
-                    .bind(&chart_event.token_id)
-                    .bind(&chart_event.price)
-                    .bind(&chart_event.volume)
-                    .bind(chart_event.block_timestamp)
-                    .bind(chart_event.block_number)
-                    .bind(&chart_event.transaction_hash)
-                    .bind(chart_event.log_index)
-                    .bind(chart_event.transaction_index)
-                    .execute(&self.db.pool)
-                    .await
-            }) {
-                Ok(_) => {
-                    if attempt > 1 {
-                        info!(
-                            "[CHART] Price history insert succeeded on attempt {} for token={}",
-                            attempt, chart_event.token_id
-                        );
-                    }
-                    return Ok(());
-                }
-                Err(err) => {
-                    if attempt >= max_attempts {
-                        let err_msg = format!(
-                            "Failed to insert price history after {} attempts: token={}, error: {}",
-                            attempt, chart_event.token_id, err
-                        );
-                        error!("[CHART] {}", err_msg);
-                        return Err(anyhow!(err_msg));
-                    }
-
-                    let current_delay = if err.to_string().contains("deadlock") {
-                        base_delay.mul_f32(2.0_f32.powi(attempt - 1))
-                    } else {
-                        base_delay.mul_f32(1.5_f32.powi(attempt - 1))
-                    };
-                    warn!(
-                        "[CHART] Price history insert failed for token={}. Backing off for {}ms: {}",
-                        chart_event.token_id,
-                        current_delay.as_millis(),
-                        err
-                    );
-                    sleep(current_delay).await;
-                }
-            }
-        }
     }
 
     // Batch insert 메서드

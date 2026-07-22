@@ -9,12 +9,8 @@ use tracing::{debug, error, info};
 // Redis에 저장할 데이터 유형별 키 접두사
 const PREFIX_TOKEN_EXISTS: &str = "token_exists:";
 const PREFIX_IS_TOKEN_POOL: &str = "is_token_pool:";
-const PREFIX_IS_DEX_POOL: &str = "is_dex_pool:";
 
-const PREFIX_TOKEN_CURVE: &str = "token_curve_v2:";
-const PREFIX_TOKEN_DEV: &str = "token_dev_v2:";
-const PREFIX_TOKEN_POOL: &str = "token_pool_v2:";
-const PREFIX_TOKEN_PAIR: &str = "token_pair_v2:";
+const PREFIX_TOKEN_PAIR: &str = "token_pair:";
 const PREFIX_TOKEN_QUOTE: &str = "token_quote_id:";
 const PREFIX_TOKEN_CREATOR: &str = "token_creator:";
 const PREFIX_EOA: &str = "eoa:";
@@ -31,10 +27,6 @@ const PREFIX_TX_SENDER: &str = "tx_sender:";
 const ALL_PREFIXES: &[&str] = &[
     PREFIX_TOKEN_EXISTS,
     PREFIX_IS_TOKEN_POOL,
-    PREFIX_IS_DEX_POOL,
-    PREFIX_TOKEN_CURVE,
-    PREFIX_TOKEN_DEV,
-    PREFIX_TOKEN_POOL,
     PREFIX_TOKEN_PAIR,
     PREFIX_TOKEN_QUOTE,
     PREFIX_TOKEN_CREATOR,
@@ -124,11 +116,9 @@ impl RedisDatabase {
     /// Flush all observer-owned cache keys at startup.
     ///
     /// Deletes every key matching any prefix in `ALL_PREFIXES` so that
-    /// the cache rebuilds from Postgres after restart. This is required
-    /// after the address-lowercase removal refactor: legacy lowercase
-    /// entries would silently mismatch fresh EIP-55 checksum addresses
-    /// and cause pool ordering, swap direction, and quote_id lookups to
-    /// misbehave.
+    /// the cache rebuilds from Postgres after restart. Rebuilding establishes
+    /// the invariant that cached addresses use EIP-55 checksum form, keeping
+    /// pool ordering, swap direction, and quote_id lookups consistent.
     ///
     /// Uses a single non-blocking SCAN sweep over the full keyspace,
     /// dispatching matched keys into per-prefix buckets for reporting.
@@ -285,70 +275,6 @@ impl RedisDatabase {
     }
 
     //-------------------------------------------------------------------------
-    // 토큰-커브 관련 메서드들
-    //-------------------------------------------------------------------------
-
-    /// 토큰-커브 관계 저장
-    pub async fn insert_token_curve(&self, token: &str, curve: &str) -> Result<()> {
-        let mut conn = self.get_conn().await?;
-
-        conn.set_ex::<String, String, ()>(
-            format!("{}{}", PREFIX_TOKEN_CURVE, token),
-            curve.to_string(),
-            CACHE_EXPIRATION,
-        )
-        .await
-        .map_err(|e| {
-            error!("[REDIS] Failed to insert token curve: {}", e);
-            anyhow!("Failed to insert token curve: {}", e)
-        })?;
-
-        debug!(
-            "Token curve mapping stored in Redis: token={}, curve={}",
-            token, curve
-        );
-        Ok(())
-    }
-
-    /// 토큰과 커브의 관계 확인
-    pub async fn check_token_curve(&self, token: &str, curve: &str) -> Result<bool> {
-        let mut conn = self.get_conn().await?;
-        let key = format!("{}{}", PREFIX_TOKEN_CURVE, token);
-
-        let stored_curve: Option<String> = conn.get(&key).await.map_err(|e| {
-            error!("[REDIS] Failed to check token curve: {}", e);
-            anyhow!("Failed to check token curve in Redis: {}", e)
-        })?;
-
-        // 커브가 일치할 경우에만 TTL 갱신
-        if let Some(ref stored) = stored_curve
-            && stored == curve
-        {
-            self.refresh_ttl(&mut conn, &key).await?;
-        }
-
-        Ok(stored_curve.is_some_and(|c| c == curve))
-    }
-
-    /// 토큰에 대한 커브 정보 조회
-    pub async fn get_token_curve(&self, token: &str) -> Result<Option<String>> {
-        let mut conn = self.get_conn().await?;
-        let key = format!("{}{}", PREFIX_TOKEN_CURVE, token);
-
-        let curve: Option<String> = conn.get(&key).await.map_err(|e| {
-            error!("[REDIS] Failed to get token curve: {}", e);
-            anyhow!("Failed to get token curve from Redis: {}", e)
-        })?;
-
-        // 데이터가 존재하면 TTL 갱신
-        if curve.is_some() {
-            self.refresh_ttl(&mut conn, &key).await?;
-        }
-
-        Ok(curve)
-    }
-
-    //-------------------------------------------------------------------------
     // 화이트리스트 POOL 관련 메서드들
     //-------------------------------------------------------------------------
 
@@ -392,90 +318,6 @@ impl RedisDatabase {
         }
 
         Ok(exists)
-    }
-
-    //-------------------------------------------------------------------------
-    // DEX POOL 관련 메서드들
-    //-------------------------------------------------------------------------
-
-    pub async fn insert_dex_pool_flag(&self, pool: &str, is_dex: bool) -> Result<()> {
-        let mut conn = self.get_conn().await?;
-
-        conn.set_ex::<String, bool, ()>(
-            format!("{}{}", PREFIX_IS_DEX_POOL, pool),
-            is_dex,
-            CACHE_EXPIRATION,
-        )
-        .await
-        .map_err(|e| {
-            error!("[REDIS] Failed to insert dex pool flag: {}", e);
-            anyhow!("Failed to insert dex pool flag: {}", e)
-        })?;
-
-        debug!("Dex pool flag inserted into Redis: {} = {}", pool, is_dex);
-        Ok(())
-    }
-
-    pub async fn check_dex_pool_flag(&self, pool: &str) -> Result<Option<bool>> {
-        let mut conn = self.get_conn().await?;
-        let key = format!("{}{}", PREFIX_IS_DEX_POOL, pool);
-
-        let exists: Option<bool> = conn.get(&key).await.map_err(|e| {
-            error!("[REDIS] Failed to check dex pool flag: {}", e);
-            anyhow!("Failed to check dex pool flag in Redis: {}", e)
-        })?;
-
-        if let Some(is_dex) = exists
-            && is_dex
-        {
-            self.refresh_ttl(&mut conn, &key).await?;
-        }
-
-        Ok(exists)
-    }
-
-    //-------------------------------------------------------------------------
-    // 토큰-POOL 관련 메서드들
-    //-------------------------------------------------------------------------
-
-    /// 토큰-POOL 관계 저장
-    pub async fn insert_token_pool(&self, token: &str, pool: &str) -> Result<()> {
-        let mut conn = self.get_conn().await?;
-
-        conn.set_ex::<String, String, ()>(
-            format!("{}{}", PREFIX_TOKEN_POOL, token),
-            pool.to_string(),
-            CACHE_EXPIRATION,
-        )
-        .await
-        .map_err(|e| {
-            error!("[REDIS] Failed to insert token pool: {}", e);
-            anyhow!("Failed to insert token pool: {}", e)
-        })?;
-
-        debug!(
-            "Token pool mapping stored in Redis: token={}, pool={}",
-            token, pool
-        );
-        Ok(())
-    }
-
-    /// 토큰에 대한 POOL 정보 조회
-    pub async fn get_token_pool(&self, token: &str) -> Result<Option<String>> {
-        let mut conn = self.get_conn().await?;
-        let key = format!("{}{}", PREFIX_TOKEN_POOL, token);
-
-        let pool: Option<String> = conn.get(&key).await.map_err(|e| {
-            error!("[REDIS] Failed to get token pool: {}", e);
-            anyhow!("Failed to get token pool from Redis: {}", e)
-        })?;
-
-        // 데이터가 존재하면 TTL 갱신
-        if pool.is_some() {
-            self.refresh_ttl(&mut conn, &key).await?;
-        }
-
-        Ok(pool)
     }
 
     //-------------------------------------------------------------------------
@@ -596,10 +438,6 @@ impl RedisDatabase {
             white_list_pools: self
                 .count_keys(&format!("{}*", PREFIX_IS_TOKEN_POOL))
                 .await?,
-            dex_pools: self.count_keys(&format!("{}*", PREFIX_IS_DEX_POOL)).await?,
-            token_curves: self.count_keys(&format!("{}*", PREFIX_TOKEN_CURVE)).await?,
-            token_devs: self.count_keys(&format!("{}*", PREFIX_TOKEN_DEV)).await?,
-            token_pools: self.count_keys(&format!("{}*", PREFIX_TOKEN_POOL)).await?,
             pool_pairs: self.count_keys(&format!("{}*", PREFIX_TOKEN_PAIR)).await?,
             connection_status: self.get_connection_status(),
         })
@@ -746,10 +584,6 @@ impl RedisDatabase {
 pub struct CacheStats {
     pub indexed_tokens: usize,
     pub white_list_pools: usize,
-    pub dex_pools: usize,
-    pub token_curves: usize,
-    pub token_devs: usize,
-    pub token_pools: usize,
     pub pool_pairs: usize,
     pub connection_status: String,
 }

@@ -74,7 +74,7 @@ impl VaultController {
         let usd_values: Vec<&BigDecimal> = data.iter().map(|d| &d.usd_value).collect();
 
         retry_query("vault_burns", || async {
-            measure_postgres!("v2_batch_insert_vault_burns", {
+            measure_postgres!("batch_insert_vault_burns", {
                 sqlx::query(INSERT_VAULT_BURNS_SQL)
                     .bind(&vault_types)
                     .bind(&token_ids)
@@ -112,7 +112,7 @@ impl VaultController {
         let usd_values: Vec<&BigDecimal> = data.iter().map(|d| &d.usd_value).collect();
 
         retry_query("vault_lp_inject", || async {
-            measure_postgres!("v2_batch_insert_vault_lp_injections", {
+            measure_postgres!("batch_insert_vault_lp_injections", {
                 sqlx::query(INSERT_VAULT_LP_INJECTIONS_SQL)
                     .bind(&token_ids)
                     .bind(&quote_useds)
@@ -155,7 +155,7 @@ impl VaultController {
         let usd_values: Vec<&BigDecimal> = data.iter().map(|d| &d.usd_value).collect();
 
         retry_query("creator_fee_claims", || async {
-            measure_postgres!("v2_batch_insert_creator_fee_claims", {
+            measure_postgres!("batch_insert_creator_fee_claims", {
                 sqlx::query(INSERT_CREATOR_FEE_CLAIMS_SQL)
                     .bind(&event_types)
                     .bind(&token_ids)
@@ -200,7 +200,7 @@ impl VaultController {
         let expires_ats: Vec<i64> = data.iter().map(|d| d.expires_at).collect();
 
         retry_query("gifts", || async {
-            measure_postgres!("v2_batch_insert_gifts", {
+            measure_postgres!("batch_insert_gifts", {
                 sqlx::query(INSERT_GIFTS_SQL)
                     .bind(&event_types)
                     .bind(&token_ids)
@@ -241,7 +241,7 @@ impl VaultController {
         let tx_indices: Vec<i32> = data.iter().map(|d| d.tx_index).collect();
 
         retry_query("creator_updates", || async {
-            measure_postgres!("v2_batch_insert_creator_updates", {
+            measure_postgres!("batch_insert_creator_updates", {
                 sqlx::query(INSERT_CREATOR_UPDATES_SQL)
                     .bind(&event_types)
                     .bind(&token_ids)
@@ -276,7 +276,7 @@ impl VaultController {
         let tx_indices: Vec<i32> = data.iter().map(|d| d.tx_index).collect();
 
         retry_query("gift_expiry_updates", || async {
-            measure_postgres!("v2_batch_insert_gift_expiry_updates", {
+            measure_postgres!("batch_insert_gift_expiry_updates", {
                 sqlx::query(INSERT_GIFT_EXPIRY_UPDATES_SQL)
                     .bind(&old_durations)
                     .bind(&new_durations)

@@ -109,7 +109,7 @@ pub async fn receive_events(
         if let Ok(cache_manager) = CacheManager::instance() {
             let cleanup_block = (to_block as i64).saturating_sub(1000);
             cache_manager
-                .remove_prices_before_or_equal(cleanup_block)
+                .remove_prices_before_or_equal_for_quote(&WNATIVE_ADDRESS, cleanup_block)
                 .await;
         }
     }
@@ -243,14 +243,23 @@ async fn process_token_events(
 
                 // value 계산: (quote_amount / 10^18) * price
                 let block_num = buy.block_number as i64;
-                let price_opt = match cache_manager.get_price(block_num).await {
+                let price_opt = match cache_manager
+                    .get_price_for_quote(&WNATIVE_ADDRESS, block_num)
+                    .await
+                {
                     Some(price) => Some(Arc::clone(&price)),
-                    None => match cache_manager.get_latest_price_before(block_num).await {
+                    None => match cache_manager
+                        .get_latest_price_before_for_quote(&WNATIVE_ADDRESS, block_num)
+                        .await
+                    {
                         Some(price) => Some(Arc::clone(&price)),
-                        None => match cache_manager.get_latest_price().await {
+                        None => match cache_manager
+                            .get_latest_price_for_quote(&WNATIVE_ADDRESS)
+                            .await
+                        {
                             Some(price) => Some(Arc::clone(&price)),
                             None => cache_manager
-                                .get_price_from_db(block_num)
+                                .get_price_from_db_for_quote(&WNATIVE_ADDRESS, block_num)
                                 .await
                                 .map(Arc::new),
                         },
@@ -301,14 +310,23 @@ async fn process_token_events(
 
                 // value 계산: (quote_amount / 10^18) * price
                 let block_num = sell.block_number as i64;
-                let price_opt = match cache_manager.get_price(block_num).await {
+                let price_opt = match cache_manager
+                    .get_price_for_quote(&WNATIVE_ADDRESS, block_num)
+                    .await
+                {
                     Some(price) => Some(Arc::clone(&price)),
-                    None => match cache_manager.get_latest_price_before(block_num).await {
+                    None => match cache_manager
+                        .get_latest_price_before_for_quote(&WNATIVE_ADDRESS, block_num)
+                        .await
+                    {
                         Some(price) => Some(Arc::clone(&price)),
-                        None => match cache_manager.get_latest_price().await {
+                        None => match cache_manager
+                            .get_latest_price_for_quote(&WNATIVE_ADDRESS)
+                            .await
+                        {
                             Some(price) => Some(Arc::clone(&price)),
                             None => cache_manager
-                                .get_price_from_db(block_num)
+                                .get_price_from_db_for_quote(&WNATIVE_ADDRESS, block_num)
                                 .await
                                 .map(Arc::new),
                         },
@@ -429,14 +447,23 @@ async fn process_token_events(
 
             // ATH price를 USD로 변환
             let block_num = last_sync.block_number as i64;
-            let native_price = match cache_manager.get_price(block_num).await {
+            let native_price = match cache_manager
+                .get_price_for_quote(&WNATIVE_ADDRESS, block_num)
+                .await
+            {
                 Some(price) => Some(Arc::clone(&price)),
-                None => match cache_manager.get_latest_price_before(block_num).await {
+                None => match cache_manager
+                    .get_latest_price_before_for_quote(&WNATIVE_ADDRESS, block_num)
+                    .await
+                {
                     Some(price) => Some(Arc::clone(&price)),
-                    None => match cache_manager.get_latest_price().await {
+                    None => match cache_manager
+                        .get_latest_price_for_quote(&WNATIVE_ADDRESS)
+                        .await
+                    {
                         Some(price) => Some(Arc::clone(&price)),
                         None => cache_manager
-                            .get_price_from_db(block_num)
+                            .get_price_from_db_for_quote(&WNATIVE_ADDRESS, block_num)
                             .await
                             .map(Arc::new),
                     },

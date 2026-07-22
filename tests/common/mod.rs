@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use testcontainers_modules::{
     postgres::Postgres,
-    testcontainers::{runners::AsyncRunner, ContainerAsync, ImageExt},
+    testcontainers::{ContainerAsync, ImageExt, runners::AsyncRunner},
 };
 
 /// Owned test database handle. The `_container` field must be held for the
@@ -19,9 +19,8 @@ pub struct TestDb {
 }
 
 /// Spin up a fresh Postgres container, connect to it, enable required
-/// extensions, and apply the baseline migrations (files prefixed with
-/// `0001_` through `0015_`) plus `v2_upgrade_*.sql` scripts. Skips
-/// `1000_delete.sql`.
+/// extensions, and apply the single canonical schema migration. Skips
+/// destructive reset migrations.
 pub async fn setup_test_db() -> Result<TestDb> {
     // Ensure observer's lazy-static address configs can initialize even in
     // tests that import them (e.g. `WNATIVE_ADDRESS`). Any valid hex address
@@ -43,6 +42,9 @@ pub async fn setup_test_db() -> Result<TestDb> {
                 "QUOTE_CONFIGS",
                 "0x760AfE15c6AB78f59cd24C2f5b9aeB8C82d95c5b:0xfeed:18",
             );
+        }
+        if std::env::var("DEFAULT_DELAY").is_err() {
+            std::env::set_var("DEFAULT_DELAY", "10");
         }
     }
 
@@ -206,23 +208,18 @@ pub async fn get_balance(
     token_id: &str,
     account_id: &str,
 ) -> Result<Option<String>> {
-    let row: Option<(String,)> = sqlx::query_as(
-        "SELECT balance::text FROM balance WHERE token_id = $1 AND account_id = $2",
-    )
-    .bind(token_id)
-    .bind(account_id)
-    .fetch_optional(pool)
-    .await
-    .context("failed to read balance row")?;
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT balance::text FROM balance WHERE token_id = $1 AND account_id = $2")
+            .bind(token_id)
+            .bind(account_id)
+            .fetch_optional(pool)
+            .await
+            .context("failed to read balance row")?;
     Ok(row.map(|(b,)| b))
 }
 
 /// Count `balance_history` rows for a (token_id, account_id) pair.
-pub async fn count_balance_history(
-    pool: &PgPool,
-    token_id: &str,
-    account_id: &str,
-) -> Result<i64> {
+pub async fn count_balance_history(pool: &PgPool, token_id: &str, account_id: &str) -> Result<i64> {
     let row: (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM balance_history WHERE token_id = $1 AND account_id = $2",
     )
@@ -236,13 +233,11 @@ pub async fn count_balance_history(
 
 /// Get token_holder_count from the `token` table.
 pub async fn get_token_holder_count(pool: &PgPool, token_id: &str) -> Result<i64> {
-    let row: (i64,) = sqlx::query_as(
-        "SELECT token_holder_count FROM token WHERE token_id = $1",
-    )
-    .bind(token_id)
-    .fetch_one(pool)
-    .await
-    .context("failed to read token_holder_count")?;
+    let row: (i64,) = sqlx::query_as("SELECT token_holder_count FROM token WHERE token_id = $1")
+        .bind(token_id)
+        .fetch_one(pool)
+        .await
+        .context("failed to read token_holder_count")?;
     Ok(row.0)
 }
 
@@ -273,8 +268,7 @@ pub async fn call_batch_insert_position_history(
 ) -> Result<usize> {
     use std::str::FromStr;
     let parse = |s: &str| {
-        bigdecimal::BigDecimal::from_str(s)
-            .expect("failed to parse numeric string in test helper")
+        bigdecimal::BigDecimal::from_str(s).expect("failed to parse numeric string in test helper")
     };
     let account_ids = vec![account_id];
     let token_ids = vec![token_id];
@@ -373,11 +367,7 @@ pub async fn get_position_token_flow(
 /// Insert a `market` row so the trigger on `swap` INSERT (which updates
 /// market.volume) has a row to update. `market.token_id` is the primary
 /// key so one row per token.
-pub async fn insert_market(
-    pool: &PgPool,
-    token_id: &str,
-    market_type: &str,
-) -> Result<()> {
+pub async fn insert_market(pool: &PgPool, token_id: &str, market_type: &str) -> Result<()> {
     sqlx::query(
         r#"
         INSERT INTO market (
@@ -417,8 +407,7 @@ pub async fn call_batch_insert_swaps(
 ) -> Result<()> {
     use std::str::FromStr;
     let parse = |s: &str| {
-        bigdecimal::BigDecimal::from_str(s)
-            .expect("failed to parse numeric string in test helper")
+        bigdecimal::BigDecimal::from_str(s).expect("failed to parse numeric string in test helper")
     };
     let account_ids = vec![account_id];
     let token_ids = vec![token_id];
@@ -458,25 +447,23 @@ pub async fn call_batch_insert_swaps(
 
 /// Get total swap_count (buy + sell) for a token. Returns None if no row.
 pub async fn get_swap_count(pool: &PgPool, token_id: &str) -> Result<Option<i64>> {
-    let row: Option<(i64,)> = sqlx::query_as(
-        "SELECT buy_count + sell_count FROM swap_count WHERE token_id = $1",
-    )
-    .bind(token_id)
-    .fetch_optional(pool)
-    .await
-    .context("failed to read swap_count row")?;
+    let row: Option<(i64,)> =
+        sqlx::query_as("SELECT buy_count + sell_count FROM swap_count WHERE token_id = $1")
+            .bind(token_id)
+            .fetch_optional(pool)
+            .await
+            .context("failed to read swap_count row")?;
     Ok(row.map(|(c,)| c))
 }
 
 /// Get market.volume for a token as a string (for exact comparison).
 pub async fn get_market_volume(pool: &PgPool, token_id: &str) -> Result<Option<String>> {
-    let row: Option<(String,)> = sqlx::query_as(
-        "SELECT volume::text FROM market WHERE token_id = $1",
-    )
-    .bind(token_id)
-    .fetch_optional(pool)
-    .await
-    .context("failed to read market.volume")?;
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT volume::text FROM market WHERE token_id = $1")
+            .bind(token_id)
+            .fetch_optional(pool)
+            .await
+            .context("failed to read market.volume")?;
     Ok(row.map(|(v,)| v))
 }
 
@@ -484,8 +471,8 @@ pub async fn get_market_volume(pool: &PgPool, token_id: &str) -> Result<Option<S
 /// WNATIVE quote. Used by the price-range / fallback SQL tests.
 pub async fn insert_price(pool: &PgPool, block_number: i64, price: &str) -> Result<()> {
     use std::str::FromStr;
-    let p = bigdecimal::BigDecimal::from_str(price)
-        .context("failed to parse price as BigDecimal")?;
+    let p =
+        bigdecimal::BigDecimal::from_str(price).context("failed to parse price as BigDecimal")?;
     let quote_id: &str = &observer::config::WNATIVE_ADDRESS;
     sqlx::query(
         r#"
@@ -559,13 +546,11 @@ pub async fn insert_token_metadata(
 
 /// Count `token_metadata` rows for a given metadata_url.
 pub async fn count_token_metadata(pool: &PgPool, metadata_url: &str) -> Result<i64> {
-    let row: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM token_metadata WHERE metadata_url = $1",
-    )
-    .bind(metadata_url)
-    .fetch_one(pool)
-    .await
-    .context("failed to count token_metadata")?;
+    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM token_metadata WHERE metadata_url = $1")
+        .bind(metadata_url)
+        .fetch_one(pool)
+        .await
+        .context("failed to count token_metadata")?;
     Ok(row.0)
 }
 
@@ -590,8 +575,8 @@ pub async fn call_batch_insert_tokens_and_markets(
     use std::str::FromStr;
     let vn = bigdecimal::BigDecimal::from_str(virtual_native)
         .context("failed to parse virtual_native")?;
-    let vt = bigdecimal::BigDecimal::from_str(virtual_token)
-        .context("failed to parse virtual_token")?;
+    let vt =
+        bigdecimal::BigDecimal::from_str(virtual_token).context("failed to parse virtual_token")?;
     let price = if vt > bigdecimal::BigDecimal::from(0) {
         use bigdecimal::RoundingMode;
         (&vn / &vt).with_scale_round(10, RoundingMode::Up)
@@ -722,15 +707,14 @@ pub async fn call_batch_handle_graduates(
 ) -> Result<i64> {
     let token_ids: Vec<&str> = graduates.iter().map(|(t, _)| *t).collect();
     let pool_ids: Vec<&str> = graduates.iter().map(|(_, p)| *p).collect();
-    let count: i64 = sqlx::query_scalar(
-        observer::db::postgres::controller::market::BATCH_HANDLE_GRADUATES_SQL,
-    )
-    .bind(&token_ids)
-    .bind(&pool_ids)
-    .bind(graduated_market_type)
-    .fetch_one(pool)
-    .await
-    .context("failed to execute BATCH_HANDLE_GRADUATES_SQL")?;
+    let count: i64 =
+        sqlx::query_scalar(observer::db::postgres::controller::market::BATCH_HANDLE_GRADUATES_SQL)
+            .bind(&token_ids)
+            .bind(&pool_ids)
+            .bind(graduated_market_type)
+            .fetch_one(pool)
+            .await
+            .context("failed to execute BATCH_HANDLE_GRADUATES_SQL")?;
     Ok(count)
 }
 
@@ -824,8 +808,7 @@ pub async fn call_handle_burn(
     block_timestamp: i64,
 ) -> Result<()> {
     use std::str::FromStr;
-    let amount_num = bigdecimal::BigDecimal::from_str(amount)
-        .context("failed to parse amount")?;
+    let amount_num = bigdecimal::BigDecimal::from_str(amount).context("failed to parse amount")?;
     sqlx::query(observer::db::postgres::controller::burn::HANDLE_BURN_SQL)
         .bind(account_id)
         .bind(token_id)
@@ -950,6 +933,9 @@ pub async fn call_batch_update_pool_reserves_with_freshness(
         // value: NULL means "don't touch pool.value" (test helper has no
         // chain-implied TVL to record; behave like graduated-Sync arm)
         .bind(&vec![None::<bigdecimal::BigDecimal>])
+        // Per-token USD prices follow the same nullable overwrite policy.
+        .bind(&vec![None::<bigdecimal::BigDecimal>])
+        .bind(&vec![None::<bigdecimal::BigDecimal>])
         .bind(&vec![block_timestamp])
         .bind(&vec![block_number])
         .bind(&vec![tx_index])
@@ -1022,52 +1008,61 @@ pub async fn call_handle_lp_collect(
 pub async fn get_market_row(
     pool: &PgPool,
     token_id: &str,
-) -> Result<Option<(String, String, String, String, String, String, Option<String>)>> {
-    let row: Option<(String, String, String, String, String, String, Option<String>)> =
-        sqlx::query_as(
-            r#"
+) -> Result<
+    Option<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+    )>,
+> {
+    let row: Option<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+    )> = sqlx::query_as(
+        r#"
             SELECT market_type, price::text, ath_price::text, ath_price_quote::text,
                    reserve_quote::text, reserve_token::text, pool_id
             FROM market WHERE token_id = $1
             "#,
-        )
-        .bind(token_id)
-        .fetch_optional(pool)
-        .await
-        .context("failed to read market row")?;
+    )
+    .bind(token_id)
+    .fetch_optional(pool)
+    .await
+    .context("failed to read market row")?;
     Ok(row)
 }
 
 /// Get token.total_supply as text.
 pub async fn get_total_supply(pool: &PgPool, token_id: &str) -> Result<String> {
-    let row: (String,) = sqlx::query_as(
-        "SELECT total_supply::text FROM token WHERE token_id = $1",
-    )
-    .bind(token_id)
-    .fetch_one(pool)
-    .await
-    .context("failed to read total_supply")?;
+    let row: (String,) = sqlx::query_as("SELECT total_supply::text FROM token WHERE token_id = $1")
+        .bind(token_id)
+        .fetch_one(pool)
+        .await
+        .context("failed to read total_supply")?;
     Ok(row.0)
 }
 
 /// Get token.is_graduated.
 pub async fn get_is_graduated(pool: &PgPool, token_id: &str) -> Result<bool> {
-    let row: (bool,) = sqlx::query_as(
-        "SELECT is_graduated FROM token WHERE token_id = $1",
-    )
-    .bind(token_id)
-    .fetch_one(pool)
-    .await
-    .context("failed to read is_graduated")?;
+    let row: (bool,) = sqlx::query_as("SELECT is_graduated FROM token WHERE token_id = $1")
+        .bind(token_id)
+        .fetch_one(pool)
+        .await
+        .context("failed to read is_graduated")?;
     Ok(row.0)
 }
 
 /// Count rows in a table matching a token_id.
-pub async fn count_rows_for_token(
-    pool: &PgPool,
-    table: &str,
-    token_id: &str,
-) -> Result<i64> {
+pub async fn count_rows_for_token(pool: &PgPool, table: &str, token_id: &str) -> Result<i64> {
     let sql = format!("SELECT COUNT(*) FROM {} WHERE token_id = $1", table);
     let row: (i64,) = sqlx::query_as(&sql)
         .bind(token_id)
@@ -1079,12 +1074,11 @@ pub async fn count_rows_for_token(
 
 /// Get token_count totals.
 pub async fn get_token_count(pool: &PgPool) -> Result<(i64, i64)> {
-    let row: (i64, i64) = sqlx::query_as(
-        "SELECT total_count, graduated_count FROM token_count LIMIT 1",
-    )
-    .fetch_one(pool)
-    .await
-    .context("failed to read token_count")?;
+    let row: (i64, i64) =
+        sqlx::query_as("SELECT total_count, graduated_count FROM token_count LIMIT 1")
+            .fetch_one(pool)
+            .await
+            .context("failed to read token_count")?;
     Ok(row)
 }
 
@@ -1120,66 +1114,6 @@ pub async fn count_lp_collect(pool: &PgPool, token_id: &str) -> Result<i64> {
 // Group C helpers: fee
 // ============================================================================
 
-/// Call `HANDLE_SET_FEE_PROTOCOL_SQL` with scalar params.
-#[allow(clippy::too_many_arguments)]
-pub async fn call_handle_set_fee_protocol(
-    pool: &PgPool,
-    pool_id: &str,
-    block_number: i64,
-    transaction_hash: &str,
-    tx_index: i32,
-    log_index: i32,
-    fee_protocol0_old: i16,
-    fee_protocol1_old: i16,
-    fee_protocol0_new: i16,
-    fee_protocol1_new: i16,
-) -> Result<()> {
-    sqlx::query(observer::db::postgres::controller::fee::HANDLE_SET_FEE_PROTOCOL_SQL)
-        .bind(pool_id)
-        .bind(block_number)
-        .bind(transaction_hash)
-        .bind(tx_index)
-        .bind(log_index)
-        .bind(fee_protocol0_old)
-        .bind(fee_protocol1_old)
-        .bind(fee_protocol0_new)
-        .bind(fee_protocol1_new)
-        .execute(pool)
-        .await
-        .context("failed to execute HANDLE_SET_FEE_PROTOCOL_SQL")?;
-    Ok(())
-}
-
-/// Call `BATCH_INSERT_SET_FEE_PROTOCOLS_SQL` with array params (single-element for ergonomics).
-#[allow(clippy::too_many_arguments)]
-pub async fn call_batch_insert_set_fee_protocols(
-    pool: &PgPool,
-    pool_ids: &[&str],
-    block_numbers: &[i64],
-    transaction_hashes: &[&str],
-    tx_indices: &[i32],
-    log_indices: &[i32],
-    fee_protocol0_olds: &[i16],
-    fee_protocol1_olds: &[i16],
-    fee_protocol0_news: &[i16],
-    fee_protocol1_news: &[i16],
-) -> Result<()> {
-    sqlx::query(observer::db::postgres::controller::fee::BATCH_INSERT_SET_FEE_PROTOCOLS_SQL)
-        .bind(pool_ids)
-        .bind(block_numbers)
-        .bind(transaction_hashes)
-        .bind(tx_indices)
-        .bind(log_indices)
-        .bind(fee_protocol0_olds)
-        .bind(fee_protocol1_olds)
-        .bind(fee_protocol0_news)
-        .bind(fee_protocol1_news)
-        .execute(pool)
-        .await
-        .context("failed to execute BATCH_INSERT_SET_FEE_PROTOCOLS_SQL")?;
-    Ok(())
-}
-
 /// Call `BATCH_INSERT_FEE_HISTORY_SQL` with array params.
 #[allow(clippy::too_many_arguments)]
 pub async fn call_batch_insert_fee_history(
@@ -1210,33 +1144,6 @@ pub async fn call_batch_insert_fee_history(
         .await
         .context("failed to execute BATCH_INSERT_FEE_HISTORY_SQL")?;
     Ok(())
-}
-
-/// Count `set_fee_history` rows matching a composite PK.
-pub async fn count_set_fee_history(
-    pool: &PgPool,
-    pool_id: &str,
-    block_number: i64,
-    transaction_hash: &str,
-    tx_index: i32,
-    log_index: i32,
-) -> Result<i64> {
-    let row: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COUNT(*) FROM set_fee_history
-        WHERE pool_id = $1 AND block_number = $2 AND transaction_hash = $3
-          AND tx_index = $4 AND log_index = $5
-        "#,
-    )
-    .bind(pool_id)
-    .bind(block_number)
-    .bind(transaction_hash)
-    .bind(tx_index)
-    .bind(log_index)
-    .fetch_one(pool)
-    .await
-    .context("failed to count set_fee_history rows")?;
-    Ok(row.0)
 }
 
 /// Count `fee_history` rows matching a composite PK.

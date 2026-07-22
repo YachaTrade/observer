@@ -24,14 +24,11 @@ use crate::{
     },
     db::cache::CacheManager,
     event::{
+        common::token::{TokenEventChannel, receive::receive_events},
         get_block_timestamp,
-        common::token::{receive::receive_events, TokenEventChannel},
     },
-    sync::{stream::STREAM_MANAGER, BlockRange, EventType},
-    types::token::{
-        LpPositionHistoryEvent, PositionHistoryEvent, TokenBalance, TokenBurn, TokenEvent,
-        TransferType,
-    },
+    sync::{BlockRange, EventType, stream::STREAM_MANAGER},
+    types::token::{PositionHistoryEvent, TokenBalance, TokenBurn, TokenEvent, TransferType},
     utils::to_big_decimal,
 };
 
@@ -44,9 +41,8 @@ const LOG_FETCH_RETRY_DELAY_MS: u64 = 500;
 static ZERO_ADDRESS: LazyLock<Address> = LazyLock::new(|| Address::ZERO);
 
 /// WMON 주소 (Address로 파싱해서 캐시)
-static WMON_ADDRESS: LazyLock<Address> = LazyLock::new(|| {
-    WNATIVE_ADDRESS.parse().expect("Invalid WMON address")
-});
+static WMON_ADDRESS: LazyLock<Address> =
+    LazyLock::new(|| WNATIVE_ADDRESS.parse().expect("Invalid WMON address"));
 
 /// Non-WMON quote addresses parsed once at first access.
 /// Depends on `init_quote_configs_from_db` having been called during startup.
@@ -146,8 +142,15 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
         let time = Instant::now();
 
         // 1. 블록 범위 조회
-        let BlockRange { from_block, to_block } = STREAM_MANAGER
-            .get_next_block_range(event_type, block_batch_size, client.get_cached_latest_block())
+        let BlockRange {
+            from_block,
+            to_block,
+        } = STREAM_MANAGER
+            .get_next_block_range(
+                event_type,
+                block_batch_size,
+                client.get_cached_latest_block(),
+            )
             .await;
 
         if from_block > to_block {
@@ -173,8 +176,8 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
         let (parsed_logs, token_events) =
             parse_logs_parallel(logs, client, cache_manager.clone()).await;
 
-        // 4. TokenEvent 분리 (Balance, Burn, LpPosition)
-        let (balances, burns, lp_positions) = separate_token_events(token_events);
+        // 4. TokenEvent 분리 (Balance, Burn)
+        let (balances, burns) = separate_token_events(token_events);
         let filtered_balances = filter_latest_balances(balances);
 
         // 5. PositionHistory 생성 (ParsedLog 기반)
@@ -182,8 +185,7 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
             build_position_histories(&parsed_logs, cache_manager.clone()).await;
 
         // 6. 최종 이벤트 구성 및 전송
-        let final_events =
-            build_final_events(filtered_balances, burns, position_histories, lp_positions);
+        let final_events = build_final_events(filtered_balances, burns, position_histories);
         let events_count = final_events.len();
         total_events += events_count;
 
@@ -195,11 +197,19 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
         // 7. 로깅 및 상태 업데이트
         warn!(
             "📊 {:?} Stream: Blocks {}-{} | Logs {} | Events {} | Total {} | {}ms",
-            event_type, from_block, to_block, logs_count, events_count, total_events, time.elapsed().as_millis()
+            event_type,
+            from_block,
+            to_block,
+            logs_count,
+            events_count,
+            total_events,
+            time.elapsed().as_millis()
         );
 
         block_batch_size = *BLOCK_BATCH_SIZE;
-        STREAM_MANAGER.set_event_block_processed_block(event_type, to_block).await;
+        STREAM_MANAGER
+            .set_event_block_processed_block(event_type, to_block)
+            .await;
     }
 }
 
@@ -223,14 +233,11 @@ async fn fetch_logs(client: &RpcClient, from_block: u64, to_block: u64) -> Resul
     let to = BlockNumberOrTag::Number(to_block);
 
     // Primary filter: token Transfer + WMON Deposit/Withdrawal (all contracts)
-    let primary_filter = Filter::new()
-        .from_block(from)
-        .to_block(to)
-        .events([
-            IToken::Transfer::SIGNATURE,
-            Deposit::SIGNATURE,
-            Withdrawal::SIGNATURE,
-        ]);
+    let primary_filter = Filter::new().from_block(from).to_block(to).events([
+        IToken::Transfer::SIGNATURE,
+        Deposit::SIGNATURE,
+        Withdrawal::SIGNATURE,
+    ]);
 
     // Non-WMON quote Transfer filter (only when there are non-WMON quotes configured)
     let non_wmon_addrs = NON_WMON_QUOTE_ADDRESSES.clone();
@@ -325,34 +332,6 @@ async fn parse_log(
     };
 
     if !is_indexed_token {
-        // NadFunPair Transfer routing (LP position tracking).
-        //
-        // If the address is a known DEX pool in the Redis pool cache, route
-        // the Transfer log to the LP position parser. Cost basis is filled by
-        // the `update_lp_position_on_history` BEFORE INSERT trigger downstream.
-        let tx_hash_str = log
-            .transaction_hash
-            .map(|h| h.to_string())
-            .unwrap_or_else(|| "<no-tx>".to_string());
-        let is_pair = match cache_manager.check_dex_pool(&token_addr_str).await {
-            Ok(v) => v,
-            Err(e) => {
-                error!(
-                    "[LP] check_dex_pool_err pool={} tx={} err={:?}",
-                    token_addr_str, tx_hash_str, e
-                );
-                false
-            }
-        };
-        if is_pair && log.topic0() == Some(&IToken::Transfer::SIGNATURE_HASH) {
-            info!(
-                "[LP] pair_transfer_routed pool={} tx={} log_index={}",
-                token_addr_str,
-                tx_hash_str,
-                log.log_index.unwrap_or(0)
-            );
-            return parse_pair_position_dispatch(log, client).await;
-        }
         return (None, Vec::new());
     }
 
@@ -364,59 +343,6 @@ async fn parse_log(
     parse_transfer_log(log, client, cache_manager).await
 }
 
-/// Dispatch a V2 NadFunPair `Transfer` log to the LP position parser and wrap
-/// the resulting rows as `TokenEvent::LpPosition` for the receive pipeline.
-///
-/// Returns `(None, vec![])` on missing metadata, decode failure, or self-transfer.
-async fn parse_pair_position_dispatch(
-    log: Log,
-    client: &RpcClient,
-) -> (Option<ParsedLog>, Vec<TokenEvent>) {
-    use crate::event::common::token::lp_position::parse_lp_position_log;
-
-    let pool_addr = log.address().to_string();
-    let tx_hash_str = log
-        .transaction_hash
-        .map(|h| h.to_string())
-        .unwrap_or_else(|| "<no-tx>".to_string());
-
-    let meta = match LogMeta::from_log(&log, client).await {
-        Ok(m) => m,
-        Err(e) => {
-            error!(
-                "[LP] log_meta_failed pool={} tx={} err={:?}",
-                pool_addr, tx_hash_str, e
-            );
-            return (None, Vec::new());
-        }
-    };
-
-    let parsed = parse_lp_position_log(
-        &log,
-        meta.block_number,
-        meta.block_timestamp,
-        meta.tx_index,
-        meta.log_index,
-    );
-    if parsed.is_empty() {
-        error!(
-            "[LP] parse_empty pool={} tx={} block={} log_index={}",
-            pool_addr, tx_hash_str, meta.block_number, meta.log_index
-        );
-        return (None, Vec::new());
-    }
-    info!(
-        "[LP] dispatched pool={} tx={} rows={}",
-        pool_addr,
-        tx_hash_str,
-        parsed.len()
-    );
-    (
-        None,
-        parsed.into_iter().map(TokenEvent::LpPosition).collect(),
-    )
-}
-
 /// Split the flat `TokenEvent` stream into per-kind buckets the caller can
 /// route to different storage layers.
 ///
@@ -425,23 +351,19 @@ async fn parse_pair_position_dispatch(
 /// (`Transfer`, `PositionHistory` are emitted directly by `build_final_events`,
 /// not by `parse_log`, so they currently shouldn't appear here — but when
 /// adding new variants, add the arm here AND update `build_final_events`.
-fn separate_token_events(
-    events: Vec<TokenEvent>,
-) -> (Vec<TokenBalance>, Vec<TokenBurn>, Vec<LpPositionHistoryEvent>) {
+fn separate_token_events(events: Vec<TokenEvent>) -> (Vec<TokenBalance>, Vec<TokenBurn>) {
     let mut balances = Vec::new();
     let mut burns = Vec::new();
-    let mut lp_positions = Vec::new();
 
     for event in events {
         match event {
             TokenEvent::Balance(b) => balances.push(b),
             TokenEvent::Burn(b) => burns.push(b),
-            TokenEvent::LpPosition(p) => lp_positions.push(p),
             _ => {}
         }
     }
 
-    (balances, burns, lp_positions)
+    (balances, burns)
 }
 
 fn filter_latest_balances(balances: Vec<TokenBalance>) -> Vec<TokenBalance> {
@@ -463,16 +385,19 @@ fn build_final_events(
     balances: Vec<TokenBalance>,
     burns: Vec<TokenBurn>,
     positions: Vec<PositionHistoryEvent>,
-    lp_positions: Vec<LpPositionHistoryEvent>,
 ) -> Vec<TokenEvent> {
-    let mut events = Vec::with_capacity(
-        balances.len() + burns.len() + positions.len() + lp_positions.len(),
-    );
+    let mut events = Vec::with_capacity(balances.len() + burns.len() + positions.len());
 
     events.extend(balances.into_iter().map(TokenEvent::Balance));
     events.extend(burns.into_iter().map(TokenEvent::Burn));
     events.extend(positions.into_iter().map(TokenEvent::PositionHistory));
-    events.extend(lp_positions.into_iter().map(TokenEvent::LpPosition));
+    events.sort_by_key(|event| {
+        (
+            event.block_number(),
+            event.transaction_index(),
+            event.log_index(),
+        )
+    });
 
     events
 }
@@ -536,10 +461,7 @@ fn parse_wmon_log(log: &Log) -> (Option<ParsedLog>, Vec<TokenEvent>) {
     {
         let Deposit { wad, .. } = decoded.inner.data;
         let amount = to_big_decimal(wad);
-        return (
-            Some(ParsedLog::Deposit { amount, tx_hash }),
-            Vec::new(),
-        );
+        return (Some(ParsedLog::Deposit { amount, tx_hash }), Vec::new());
     }
 
     // Withdrawal 이벤트 (유저가 WMON을 태워서 MON을 받음 → quote_in)
@@ -548,10 +470,7 @@ fn parse_wmon_log(log: &Log) -> (Option<ParsedLog>, Vec<TokenEvent>) {
     {
         let Withdrawal { wad, .. } = decoded.inner.data;
         let amount = to_big_decimal(wad);
-        return (
-            Some(ParsedLog::Withdrawal { amount, tx_hash }),
-            Vec::new(),
-        );
+        return (Some(ParsedLog::Withdrawal { amount, tx_hash }), Vec::new());
     }
 
     // Transfer 등 다른 이벤트는 무시 (WMON도 ERC20이라 Transfer 이벤트 있음)
@@ -599,7 +518,10 @@ async fn parse_transfer_log(
 
     // from == to 체크
     if from == to {
-        warn!("Same from/to address: {:?} tx: {}", from, meta.transaction_hash);
+        warn!(
+            "Same from/to address: {:?} tx: {}",
+            from, meta.transaction_hash
+        );
         return (None, Vec::new());
     }
 
@@ -667,22 +589,24 @@ async fn parse_transfer_log(
 }
 
 /// Balance 조회 시도 (실패 시 None)
-async fn try_get_balance(client: &RpcClient, meta: &LogMeta, address: Address) -> Option<TokenEvent> {
+async fn try_get_balance(
+    client: &RpcClient,
+    meta: &LogMeta,
+    address: Address,
+) -> Option<TokenEvent> {
     match get_balance_at_block(client, meta.token_address, address, meta.block_number).await {
-        Ok(balance) => {
-            TokenBalance::new(
-                Arc::new(address.to_string()),
-                Arc::new(meta.token_address.to_string()),
-                Arc::new(balance),
-                meta.block_timestamp,
-                meta.block_number,
-                Arc::new(meta.transaction_hash.clone()),
-                meta.log_index,
-                meta.tx_index,
-            )
-            .ok()
-            .map(TokenEvent::Balance)
-        }
+        Ok(balance) => TokenBalance::new(
+            Arc::new(address.to_string()),
+            Arc::new(meta.token_address.to_string()),
+            Arc::new(balance),
+            meta.block_timestamp,
+            meta.block_number,
+            Arc::new(meta.transaction_hash.clone()),
+            meta.log_index,
+            meta.tx_index,
+        )
+        .ok()
+        .map(TokenEvent::Balance),
         Err(e) => {
             warn!("Failed to get balance for {}: {}", address, e);
             None
@@ -700,7 +624,9 @@ async fn get_balance_at_block(
     account_address: Address,
     block_number: u64,
 ) -> Result<BigDecimal> {
-    let call = IToken::balanceOfCall { account: account_address };
+    let call = IToken::balanceOfCall {
+        account: account_address,
+    };
     let balance = client
         .call_contract_at_block(call, token_address, block_number)
         .await?;
@@ -709,7 +635,11 @@ async fn get_balance_at_block(
 }
 
 /// 시스템 주소 체크 (HashSet 활용)
-async fn is_system_address(_cache_manager: &CacheManager, address: Address, _token_id: &str) -> bool {
+async fn is_system_address(
+    _cache_manager: &CacheManager,
+    address: Address,
+    _token_id: &str,
+) -> bool {
     // 정적 시스템 주소 (O(1) lookup)
     SYSTEM_ADDRESSES.contains(&address)
 }
@@ -746,12 +676,14 @@ async fn build_position_histories(
     // 2. Quote 이벤트가 있는 tx_hash 수집 (WMON Deposit/Withdrawal + non-WMON QuoteTransfer)
     let quote_tx_hashes: HashSet<&str> = parsed_logs
         .iter()
-        .filter(|log| matches!(
-            log,
-            ParsedLog::Deposit { .. }
-                | ParsedLog::Withdrawal { .. }
-                | ParsedLog::QuoteTransfer { .. }
-        ))
+        .filter(|log| {
+            matches!(
+                log,
+                ParsedLog::Deposit { .. }
+                    | ParsedLog::Withdrawal { .. }
+                    | ParsedLog::QuoteTransfer { .. }
+            )
+        })
         .map(|log| match log {
             ParsedLog::Deposit { tx_hash, .. } => tx_hash.as_str(),
             ParsedLog::Withdrawal { tx_hash, .. } => tx_hash.as_str(),
@@ -843,9 +775,7 @@ async fn build_position_histories(
                     }
                 };
 
-                let quote_addr: Address = quote_id_arc
-                    .parse()
-                    .unwrap_or_else(|_| *WMON_ADDRESS);
+                let quote_addr: Address = quote_id_arc.parse().unwrap_or_else(|_| *WMON_ADDRESS);
 
                 // Look up the (quote_in, quote_out) for this specific quote in this tx.
                 let this_tx_quote_flow: Option<(BigDecimal, BigDecimal)> = tx_quote_flows
@@ -886,7 +816,8 @@ async fn build_position_histories(
                 let tx_sender = tx_senders.get(tx_hash.as_str());
 
                 // EOA → EOA Transfer 판별 (해당 quote flow 없음)
-                let is_eoa_to_eoa_transfer = from_is_eoa && to_is_eoa && this_tx_quote_flow.is_none();
+                let is_eoa_to_eoa_transfer =
+                    from_is_eoa && to_is_eoa && this_tx_quote_flow.is_none();
 
                 // from의 token_out
                 if from_is_eoa {
@@ -899,10 +830,11 @@ async fn build_position_histories(
                     let has_quote_out = quote_out > BigDecimal::from(0);
 
                     // transfer_type 결정 (from: 토큰 보내는 쪽)
-                    let transfer_type = match (is_eoa_to_eoa_transfer, has_quote_in, has_quote_out) {
+                    let transfer_type = match (is_eoa_to_eoa_transfer, has_quote_in, has_quote_out)
+                    {
                         (true, _, _) => TransferType::TransferOut,
-                        (false, true, _) => TransferType::Sell,   // 토큰 팔고 quote 받음
-                        (false, _, true) => TransferType::LpAdd,  // 토큰도 주고 quote도 줌
+                        (false, true, _) => TransferType::Sell, // 토큰 팔고 quote 받음
+                        (false, _, true) => TransferType::LpAdd, // 토큰도 주고 quote도 줌
                         _ => TransferType::Other,
                     };
 
@@ -937,11 +869,16 @@ async fn build_position_histories(
                     let has_quote_out = quote_out > BigDecimal::from(0);
 
                     // transfer_type 결정 (to: 토큰 받는 쪽)
-                    let transfer_type = match (is_eoa_to_eoa_transfer, has_quote_out, has_quote_in, from_is_eoa) {
+                    let transfer_type = match (
+                        is_eoa_to_eoa_transfer,
+                        has_quote_out,
+                        has_quote_in,
+                        from_is_eoa,
+                    ) {
                         (true, _, _, _) => TransferType::TransferIn,
-                        (false, true, _, _) => TransferType::Buy,       // quote 주고 토큰 받음
-                        (false, _, true, _) => TransferType::LpRemove,  // 토큰도 받고 quote도 받음
-                        (false, _, _, false) => TransferType::Airdrop,  // Contract → EOA, no quote
+                        (false, true, _, _) => TransferType::Buy, // quote 주고 토큰 받음
+                        (false, _, true, _) => TransferType::LpRemove, // 토큰도 받고 quote도 받음
+                        (false, _, _, false) => TransferType::Airdrop, // Contract → EOA, no quote
                         _ => TransferType::Other,
                     };
 
@@ -1012,7 +949,10 @@ async fn fetch_tx_senders_for_hashes(
     }
 
     if !senders.is_empty() {
-        info!("[TOKEN] Fetched {} tx_senders for quote matching", senders.len());
+        info!(
+            "[TOKEN] Fetched {} tx_senders for quote matching",
+            senders.len()
+        );
     }
     senders
 }

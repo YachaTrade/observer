@@ -1,7 +1,7 @@
 use bigdecimal::BigDecimal;
 use std::sync::Arc;
 
-use crate::types::legacy_curve::TokenMetadata;
+use crate::types::metadata::TokenMetadata;
 
 #[derive(Debug, Clone)]
 pub enum MarketType {

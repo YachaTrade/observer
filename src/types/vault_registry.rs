@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 // Mirror of IVaultRegistry.VaultType (solidity enum):
 //   Custom=0, Burn=1, Lp=2, CreatorFee=3, Gift=4, Dividend=5
-// Source: nadfun-contract-v2/src/interfaces/IVaultRegistry.sol
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum RegisteredVaultType {

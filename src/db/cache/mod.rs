@@ -114,7 +114,7 @@ impl CacheManager {
             // computation. Different concern from the swallow-on-query-fail
             // case above; we still want loud failure if the query itself
             // errors out.
-            set.insert(crate::config::WNATIVE_ADDRESS.clone());
+            set.insert(WNATIVE_ADDRESS.clone());
             info!(
                 "[CACHE] Loaded {} native-equivalent quote addresses",
                 set.len()
@@ -268,11 +268,10 @@ impl CacheManager {
 
     /// 토큰에 대한 QUOTE TOKEN 조회 (Redis 캐시 우선, 없으면 market 테이블에서 조회).
     ///
-    /// 반환값은 EIP-55 checksum 으로 정규화됨 — Redis/PG legacy 행이
-    /// LEAST/LOWER backfill 로 lowercase 인 경우에도 호출자가 string `==`
-    /// 비교를 안전하게 사용할 수 있도록 보장 (downstream `get_quote_decimals`,
-    /// price cache 키, `WNATIVE_ADDRESS` 동등 비교 등). [`get_pool_pair`] 와
-    /// 동일한 패턴 (e3749c4 hotfix).
+    /// 반환값은 EIP-55 checksum 으로 정규화됨. 저장된 주소의 hex casing과
+    /// 관계없이 호출자가 string `==` 비교를 안전하게 사용할 수 있도록 보장
+    /// (downstream `get_quote_decimals`, price cache 키, `WNATIVE_ADDRESS`
+    /// 동등 비교 등). [`get_pool_pair`] 와 동일한 정규화 규칙을 사용함.
     pub async fn get_token_quote_id(&self, token: &str) -> Result<Option<String>> {
         // EIP-55 checksum 정규화. 파싱 실패 시 원본 유지 (방어적 fallback).
         fn to_checksum(s: &str) -> String {
@@ -316,99 +315,6 @@ impl CacheManager {
     }
 
     //-------------------------------------------------------------------------
-    // 토큰-POOL 관련 메서드들
-    //-------------------------------------------------------------------------
-
-    /// 토큰-POOL 관계 저장 (Redis + PostgreSQL)
-    pub async fn insert_token_pool(&self, token: &str, pool: &str) -> Result<()> {
-        // Redis에 먼저 추가
-        self.redis.insert_token_pool(token, pool).await?;
-
-        // PostgreSQL 관련 로직이 필요하면 여기에 추가
-
-        Ok(())
-    }
-
-    /// 토큰에 대한 POOL 정보 조회 (Redis 캐시 우선, 없으면 PostgreSQL에서 조회)
-    pub async fn get_token_pool(&self, token: &str) -> Result<Option<String>> {
-        // Redis 캐시 확인
-        match self.redis.get_token_pool(token).await {
-            Ok(Some(pool)) => {
-                debug!("Token pool found in Redis: token={}, pool={}", token, pool);
-                return Ok(Some(pool));
-            }
-            Ok(None) => {
-                debug!("Token pool not found in Redis: token={}", token);
-            }
-            Err(e) => {
-                error!("Error getting token pool from Redis: {}", e);
-                // Redis 에러는 무시하고 PostgreSQL에서 계속 시도
-            }
-        }
-
-        // PostgreSQL에서 pool_id 조회 (POOL 유형의 마켓) - 재시도 로직 추가
-        let max_retries = 5;
-        let mut retry_count = 0;
-        let backoff_base = 500; // 기본 대기 시간 (밀리초)
-
-        while retry_count < max_retries {
-            // PostgreSQL 쿼리 실행
-            let query = r#"SELECT pool_id FROM market WHERE token_id = $1 AND market_type = 'DEX'"#;
-            match sqlx::query(query)
-                .bind(token)
-                .fetch_optional(&self.postgres.pool)
-                .await
-            {
-                Ok(Some(row)) => {
-                    let pool: String = row.get("pool_id");
-                    debug!(
-                        "Token pool found in PostgreSQL: token={}, pool={}",
-                        token, pool
-                    );
-
-                    // 찾은 정보를 Redis에 캐싱
-                    if let Err(e) = self.redis.insert_token_pool(token, &pool).await {
-                        error!(
-                            "get_token_pool - Failed to cache token pool in Redis: {}",
-                            e
-                        );
-                        // Redis 캐싱 실패는 치명적이지 않으므로 계속 진행
-                    }
-
-                    return Ok(Some(pool));
-                }
-                Ok(None) => {
-                    debug!("DEX market not found in PostgreSQL: token={}", token);
-                    return Ok(None);
-                }
-                Err(e) => {
-                    // 재시도 가능한 오류
-                    retry_count += 1;
-
-                    // 지수 백오프 계산
-                    let backoff_time = backoff_base * (1 << (retry_count - 1));
-
-                    warn!(
-                        "get_token_pool - 데이터베이스 연결 오류 ({}), {}ms 후 재시도 {}/{}...: {}",
-                        token, backoff_time, retry_count, max_retries, e
-                    );
-
-                    // 대기 후 재시도
-                    tokio::time::sleep(std::time::Duration::from_millis(backoff_time)).await;
-                    continue;
-                }
-            }
-        }
-
-        // 최대 재시도 횟수를 초과한 경우
-        error!(
-            "get_token_pool - PostgreSQL 연결 최대 재시도 횟수 초과 ({}), 기본값 반환",
-            token
-        );
-        Ok(None)
-    }
-
-    //-------------------------------------------------------------------------
     // POOL 관련 메서드들
     //-------------------------------------------------------------------------
 
@@ -433,7 +339,7 @@ impl CacheManager {
         let backoff_base = 500;
 
         while retry_count < max_retries {
-            let query = r#"SELECT EXISTS(SELECT 1 FROM market WHERE pool_id = $1 AND market_type IN ('DEX', 'V2_DEX')) as exists"#;
+            let query = r#"SELECT EXISTS(SELECT 1 FROM market WHERE pool_id = $1 AND market_type = 'DEX') as exists"#;
             match sqlx::query(query)
                 .bind(pool)
                 .fetch_one(&self.postgres.pool)
@@ -463,57 +369,6 @@ impl CacheManager {
         }
 
         error!("check_token_pool - max retries exceeded ({})", pool);
-        Ok(false)
-    }
-
-    /// dex_pool 등록 (PairCreated에서 호출)
-    pub async fn insert_dex_pool(&self, pool: &str, value: bool) -> Result<()> {
-        self.redis.insert_dex_pool_flag(pool, value).await?;
-        Ok(())
-    }
-
-    /// dex_pool 여부 확인 (Redis → DB fallback: pool 테이블)
-    pub async fn check_dex_pool(&self, pool: &str) -> Result<bool> {
-        match self.redis.check_dex_pool_flag(pool).await {
-            Ok(Some(exists)) => return Ok(exists),
-            Ok(None) => {}
-            Err(e) => {
-                error!("Error checking dex_pool in Redis: {}", e);
-            }
-        }
-
-        let max_retries = 5;
-        let mut retry_count = 0;
-        let backoff_base = 500;
-
-        while retry_count < max_retries {
-            let query = r#"SELECT EXISTS(SELECT 1 FROM pool WHERE pool_id = $1) as exists"#;
-            match sqlx::query(query)
-                .bind(pool)
-                .fetch_one(&self.postgres.pool)
-                .await
-            {
-                Ok(row) => {
-                    let exists: bool = row.get("exists");
-                    if let Err(e) = self.redis.insert_dex_pool_flag(pool, exists).await {
-                        warn!("[CACHE] Failed to cache dex_pool_flag for {}: {}", pool, e);
-                    }
-                    return Ok(exists);
-                }
-                Err(e) => {
-                    retry_count += 1;
-                    let backoff_time = backoff_base * (1 << (retry_count - 1));
-                    warn!(
-                        "check_dex_pool - DB error ({}), retry {}/{}...: {}",
-                        pool, retry_count, max_retries, e
-                    );
-                    tokio::time::sleep(std::time::Duration::from_millis(backoff_time)).await;
-                    continue;
-                }
-            }
-        }
-
-        error!("check_dex_pool - max retries exceeded ({})", pool);
         Ok(false)
     }
 
@@ -565,76 +420,45 @@ impl CacheManager {
         let backoff_base = 500;
 
         while retry_count < max_retries {
-            // V1/V2를 market_type으로 명시 분기.
-            //   - V2_DEX: PairCreated 이벤트가 pool 테이블에 (pool_id,
-            //     token0, token1)을 체인 그대로 저장 → pool 룩업이 정답.
-            //   - DEX (V1): graduate는 market에만 (token_id, quote_id)를
-            //     남기고 pool 테이블엔 INSERT 안 함 → market에서 가져와
-            //     주소 비교로 (token0, token1) 정렬 (Uniswap V3 컨벤션
-            //     address(token0) < address(token1)).
-            let row = sqlx::query_as::<_, (String, Option<String>, String, String)>(
-                r#"
-                SELECT m.market_type,
-                       p.token0 AS pool_token0,
-                       m.token_id,
-                       m.quote_id
-                  FROM market m
-                  LEFT JOIN pool p ON p.pool_id = m.pool_id
-                 WHERE m.pool_id = $1
-                "#,
+            let pair = match sqlx::query_as::<_, (String, String)>(
+                r#"SELECT token0, token1 FROM pool WHERE pool_id = $1"#,
             )
             .bind(pool)
             .fetch_optional(&self.postgres.pool)
-            .await;
-            match row {
-                Ok(Some((market_type, _pool_t0_check, token_id, quote_id))) => {
-                    let (token0, token1) = match market_type.as_str() {
-                        "V2_DEX" => {
-                            // V2: pool 테이블이 정답. 별도 쿼리로 token0/token1 가져옴.
-                            let p = sqlx::query_as::<_, (String, String)>(
-                                r#"SELECT token0, token1 FROM pool WHERE pool_id = $1"#,
-                            )
-                            .bind(pool)
-                            .fetch_optional(&self.postgres.pool)
-                            .await;
-                            match p {
-                                Ok(Some((t0, t1))) => (t0, t1),
-                                Ok(None) => {
-                                    debug!(
-                                        "[V2_DEX] pool row missing for {}: PairCreated not yet processed",
-                                        pool
-                                    );
-                                    return Ok(None);
-                                }
-                                Err(e) => {
-                                    warn!(
-                                        "get_pool_pair - V2 pool lookup error pool={}: {}",
-                                        pool, e
-                                    );
-                                    return Ok(None);
-                                }
-                            }
-                        }
-                        "DEX" => {
-                            // V1: market의 (token_id, quote_id)를 주소 비교로 정렬.
-                            if token_id.to_lowercase() < quote_id.to_lowercase() {
-                                (token_id.clone(), quote_id.clone())
-                            } else {
-                                (quote_id.clone(), token_id.clone())
-                            }
-                        }
-                        other => {
-                            debug!(
-                                "get_pool_pair - unexpected market_type='{}' for pool={}",
-                                other, pool
-                            );
-                            return Ok(None);
-                        }
-                    };
-
+            .await
+            {
+                Ok(Some(pair)) => Ok(Some(pair)),
+                Ok(None) => {
+                    // Curve graduation updates market before inserting pool. The
+                    // sorted market pair is only a fallback for that timing window.
                     debug!(
-                        "Pool pair resolved: pool={}, market_type={}, token0={}, token1={}",
-                        pool, market_type, token0, token1
+                        "Pool row not visible yet; checking graduated market: pool={}",
+                        pool
+                    );
+                    sqlx::query_as::<_, (String, String)>(
+                        r#"SELECT token_id, quote_id FROM market WHERE pool_id = $1 AND market_type = 'DEX'"#,
+                    )
+                    .bind(pool)
+                    .fetch_optional(&self.postgres.pool)
+                    .await
+                    .map(|row| {
+                        row.map(|(token_id, quote_id)| {
+                            if token_id.to_lowercase() < quote_id.to_lowercase() {
+                                (token_id, quote_id)
+                            } else {
+                                (quote_id, token_id)
+                            }
+                        })
+                    })
+                }
+                Err(error) => Err(error),
+            };
+
+            match pair {
+                Ok(Some((token0, token1))) => {
+                    debug!(
+                        "Pool pair resolved: pool={}, token0={}, token1={}",
+                        pool, token0, token1
                     );
 
                     let token0 = to_checksum(&token0);
@@ -645,7 +469,7 @@ impl CacheManager {
                     return Ok(Some((token0, token1)));
                 }
                 Ok(None) => {
-                    debug!("Pool pair not found in market: pool={}", pool);
+                    debug!("Pool pair not found in pool or market: pool={}", pool);
                     return Ok(None);
                 }
                 Err(e) => {
@@ -674,8 +498,7 @@ impl CacheManager {
     //-------------------------------------------------------------------------
     //
     // Storage is a nested DashMap: quote_id -> (block_number -> price).
-    // All methods take quote_id explicitly. A WMON-defaulting wrapper layer
-    // below preserves the legacy single-quote API for V1 call sites.
+    // Every price operation identifies its quote explicitly.
 
     /// Insert a single price into the memory cache for a specific quote.
     pub async fn insert_price_for_quote(
@@ -859,6 +682,43 @@ impl CacheManager {
         }
     }
 
+    pub async fn get_price_usd_before(
+        &self,
+        token_id: &str,
+        block_number: i64,
+    ) -> Option<BigDecimal> {
+        let result = sqlx::query_scalar::<_, BigDecimal>(
+            r#"
+            SELECT price FROM price_usd
+            WHERE token_id = $1 AND block_number <= $2
+            ORDER BY block_number DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(token_id)
+        .bind(block_number)
+        .fetch_optional(&self.postgres.pool)
+        .await;
+
+        match result {
+            Ok(Some(price)) => {
+                debug!(
+                    "[CACHE] Found USD price from DB: token={} block<={}",
+                    token_id, block_number
+                );
+                Some(price)
+            }
+            Ok(None) => None,
+            Err(error) => {
+                error!(
+                    "[CACHE] Failed to get USD price from DB: token={} block={} err={}",
+                    token_id, block_number, error
+                );
+                None
+            }
+        }
+    }
+
     pub async fn get_token_quote_price_history_before(
         &self,
         token_id: &str,
@@ -943,9 +803,8 @@ impl CacheManager {
     }
 
     /// Cleanup across every known quote. Walks the current quote set and
-    /// applies `remove_prices_before_or_equal_for_quote` to each. V2 receive
-    /// paths use this because they may serve any number of quote tokens; the
-    /// legacy WMON-only wrapper is insufficient there.
+    /// applies `remove_prices_before_or_equal_for_quote` to each for streams
+    /// that serve more than one quote token.
     pub async fn remove_prices_before_or_equal_all_quotes(&self, block_number: i64) {
         let quote_ids: Vec<String> = self
             .price_cache
@@ -1011,7 +870,7 @@ impl CacheManager {
     //     usd_value = (amount / 10^decimals) * token_price_cache[token][block]
     //                 * price_cache[WMON][block]
     //
-    // Updated by the V2 DEX receive path on every RawSync via forward
+    // Updated by the DEX receive path on every RawSync via forward
     // propagation: any pool with a WMON side or a token whose price is
     // already known produces a new entry for the other side.
 
@@ -1076,13 +935,16 @@ impl CacheManager {
     ///   2. t1 == WMON         → t0 price = r1 / r0
     ///   3. t0 known           → t1 price = (r0 * t0_price) / r1
     ///   4. t1 known           → t0 price = (r1 * t1_price) / r0
-    /// otherwise orphan — neither side has a WMON-reachable price yet.
+    ///
+    /// If none matches, the pool is orphaned because neither side has a
+    /// WMON-reachable price yet.
     ///
     /// Reserves are first divided by their decimals factor so the resulting
     /// price is in human-scaled units ("how much WMON one whole unit of the
     /// other token is worth").
     ///
     /// Returns true if a new entry was written (used by warm-up fixpoint).
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_token_price_from_sync(
         &self,
         t0: &str,
@@ -1172,14 +1034,12 @@ impl CacheManager {
                 if self
                     .update_token_price_from_sync(t0, t1, d0, d1, r0, r1, sentinel_block)
                     .await
-                {
-                    if (!t0_known_before
+                    && ((!t0_known_before
                         && self.get_token_price(t0, sentinel_block).await.is_some())
                         || (!t1_known_before
-                            && self.get_token_price(t1, sentinel_block).await.is_some())
-                    {
-                        new_prices += 1;
-                    }
+                            && self.get_token_price(t1, sentinel_block).await.is_some()))
+                {
+                    new_prices += 1;
                 }
             }
             if new_prices == 0 || passes > total {
@@ -1233,61 +1093,6 @@ impl CacheManager {
     /// Total number of cached token prices across all tokens.
     pub async fn get_token_price_cache_size(&self) -> usize {
         self.token_price_cache.iter().map(|e| e.value().len()).sum()
-    }
-
-    //-------------------------------------------------------------------------
-    // WMON-only wrappers (legacy API preserved for V1 call sites)
-    //-------------------------------------------------------------------------
-
-    /// Legacy WMON-only insert. Prefer [`insert_price_for_quote`].
-    pub async fn insert_price(&self, block_number: i64, price: BigDecimal) {
-        self.insert_price_for_quote(&WNATIVE_ADDRESS, block_number, price)
-            .await
-    }
-
-    /// Legacy WMON-only batch insert. Prefer [`insert_price_batch_for_quote`].
-    pub async fn insert_price_batch(&self, prices: &[(i64, BigDecimal)]) {
-        self.insert_price_batch_for_quote(&WNATIVE_ADDRESS, prices)
-            .await
-    }
-
-    /// Legacy WMON-only exact lookup. Prefer [`get_price_for_quote`].
-    pub async fn get_price(&self, block_number: i64) -> Option<Arc<BigDecimal>> {
-        self.get_price_for_quote(&WNATIVE_ADDRESS, block_number)
-            .await
-    }
-
-    /// Legacy WMON-only range scan. Prefer [`get_prices_in_range_for_quote`].
-    pub async fn get_prices_in_range(
-        &self,
-        min_block: i64,
-        max_block: i64,
-    ) -> std::collections::HashMap<i64, Arc<BigDecimal>> {
-        self.get_prices_in_range_for_quote(&WNATIVE_ADDRESS, min_block, max_block)
-            .await
-    }
-
-    /// Legacy WMON-only latest-before lookup.
-    pub async fn get_latest_price_before(&self, block_number: i64) -> Option<Arc<BigDecimal>> {
-        self.get_latest_price_before_for_quote(&WNATIVE_ADDRESS, block_number)
-            .await
-    }
-
-    /// Legacy WMON-only absolute-latest lookup.
-    pub async fn get_latest_price(&self) -> Option<Arc<BigDecimal>> {
-        self.get_latest_price_for_quote(&WNATIVE_ADDRESS).await
-    }
-
-    /// Legacy WMON-only DB fallback.
-    pub async fn get_price_from_db(&self, block_number: i64) -> Option<BigDecimal> {
-        self.get_price_from_db_for_quote(&WNATIVE_ADDRESS, block_number)
-            .await
-    }
-
-    /// Legacy WMON-only cleanup.
-    pub async fn remove_prices_before_or_equal(&self, block_number: i64) {
-        self.remove_prices_before_or_equal_for_quote(&WNATIVE_ADDRESS, block_number)
-            .await
     }
 
     //-------------------------------------------------------------------------

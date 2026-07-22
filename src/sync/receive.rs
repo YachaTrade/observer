@@ -39,7 +39,7 @@ fn dependency_policy(event_type: EventType) -> DependencyPolicy {
             wait: DependencyWait::Strict,
             dependencies: &[(EventType::Curve, 1)],
         },
-        EventType::Price | EventType::VaultRegistry => DependencyPolicy {
+        EventType::Price | EventType::PriceUsd | EventType::VaultRegistry => DependencyPolicy {
             wait: DependencyWait::None,
             dependencies: &[],
         },

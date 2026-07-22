@@ -82,7 +82,7 @@ impl VaultRegistryController {
         let tx_indices: Vec<i32> = data.iter().map(|d| d.tx_index).collect();
 
         retry_query("vault_registry_events", || async {
-            measure_postgres!("v2_batch_insert_vault_registry_events", {
+            measure_postgres!("batch_insert_vault_registry_events", {
                 sqlx::query(INSERT_VAULT_REGISTRY_SQL)
                     .bind(&vault_ids)
                     .bind(&tx_hashes)
@@ -103,7 +103,7 @@ impl VaultRegistryController {
     pub async fn upsert_vault_metadata_batch(&self, data: &[VaultMetadataData]) -> Result<()> {
         for row in data {
             retry_query("vault_metadata", || async {
-                measure_postgres!("v2_upsert_vault_metadata", {
+                measure_postgres!("upsert_vault_metadata", {
                     sqlx::query(UPSERT_VAULT_METADATA_SQL)
                         .bind(&row.vault_id)
                         .bind(&row.name)
@@ -125,7 +125,7 @@ impl VaultRegistryController {
     pub async fn update_vault_active_batch(&self, data: &[VaultActiveData]) -> Result<()> {
         for row in data {
             retry_query("vault_metadata_active", || async {
-                measure_postgres!("v2_update_vault_active", {
+                measure_postgres!("update_vault_active", {
                     sqlx::query(UPDATE_VAULT_ACTIVE_SQL)
                         .bind(&row.vault_id)
                         .bind(row.active)

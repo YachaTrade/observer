@@ -5,8 +5,6 @@
 - **Deployment address**: `LP_MANAGER`
 - **Dependency**: Curve
 
-> Implementation provenance: the active LpManager stream uses the v1 LPManager ABI.
-
 LpManager events are ordered by block number, transaction index, and log index, grouped by token, and persisted in allocation and collection batches.
 
 ## LpManagerAllocate

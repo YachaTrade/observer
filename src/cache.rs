@@ -42,7 +42,7 @@ pub static GLOBAL_CACHE: Lazy<GlobalCache> = Lazy::new(|| GlobalCache {
 ///
 /// # 예시
 ///
-/// ```rust
+/// ```rust,ignore
 /// // 1000명이 동시에 같은 토큰 정보를 요청해도
 /// // DB에는 1번만 쿼리가 실행됨
 /// let token = with_cache(&GLOBAL_CACHE.cache, "token:BTC", || async {
@@ -110,7 +110,7 @@ where
 ///
 /// # 예시
 ///
-/// ```rust
+/// ```rust,ignore
 /// // 단순한 키
 /// let key = cache_key!("token", "BTC");
 /// // 결과: "token:\"BTC\""
