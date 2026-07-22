@@ -86,7 +86,7 @@ static DEFILLAMA_CHAIN_SLUG: std::sync::LazyLock<String> = std::sync::LazyLock::
 });
 
 pub fn coin_ref(token_id: &str) -> String {
-    format!("{}:{token_id}", &*DEFILLAMA_CHAIN_SLUG)
+    format!("{}:{token_id}", *DEFILLAMA_CHAIN_SLUG)
 }
 
 pub fn should_refetch(last: Option<u64>, now: u64, interval_secs: u64) -> bool {
