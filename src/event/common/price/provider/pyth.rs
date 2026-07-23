@@ -17,7 +17,12 @@ use super::{PriceProvider, normalize_feed_id};
 use crate::{config::PYTH_API_URL, types::price::PriceFeedResponse};
 
 const REQUEST_TIMEOUT_SECS: u64 = 30;
-const MAX_REQUESTS_PER_WINDOW: usize = 5;
+/// Pyth Hermes documents 30 req / 10s, but in practice that ceiling is
+/// shared with other API users on the same egress IP and Pyth's burst
+/// protection occasionally triggers below the documented limit. Run at
+/// 20 req / 10s (~33% safety margin) to avoid 429s during heavy
+/// catch-up cycles.
+const MAX_REQUESTS_PER_WINDOW: usize = 20;
 const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(10);
 const MAX_RETRIES: u32 = 3;
 const INITIAL_429_BACKOFF: Duration = Duration::from_secs(1);
@@ -372,17 +377,13 @@ mod tests {
         extract::Request,
         http::{Response, StatusCode},
     };
-    use reqwest::header::{HeaderValue, RETRY_AFTER};
     use tokio::time::Instant;
 
     use super::{
         PriceProvider, PythProvider, PythRateLimitConfig, RateLimiter, next_backoff, total_attempts,
     };
 
-    async fn spawn_pyth_server(
-        statuses: Vec<StatusCode>,
-        retry_after_value: Option<&'static str>,
-    ) -> (String, Arc<AtomicUsize>) {
+    async fn spawn_pyth_server(statuses: Vec<StatusCode>) -> (String, Arc<AtomicUsize>) {
         let request_count = Arc::new(AtomicUsize::new(0));
         let statuses = Arc::new(statuses);
         let app = Router::new().fallback({
@@ -404,11 +405,6 @@ mod tests {
                     };
                     let mut response = Response::new(Body::from(body));
                     *response.status_mut() = status;
-                    if let Some(value) = retry_after_value {
-                        response
-                            .headers_mut()
-                            .insert(RETRY_AFTER, HeaderValue::from_static(value));
-                    }
                     response
                 }
             }
@@ -428,10 +424,10 @@ mod tests {
     }
 
     #[test]
-    fn production_rate_limit_is_five_requests_per_ten_seconds() {
+    fn production_rate_limit_matches_nads_observer_twenty_requests_per_ten_seconds() {
         let config = PythRateLimitConfig::fixed();
 
-        assert_eq!(config.max_requests, 5);
+        assert_eq!(config.max_requests, 20);
         assert_eq!(config.window, Duration::from_secs(10));
         assert_eq!(config.max_retries, 3);
         assert_eq!(config.initial_backoff, Duration::from_secs(1));
@@ -439,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn exponential_backoff_matches_existing_sequence_and_cap() {
+    fn exponential_backoff_matches_reference_sequence_and_cap() {
         let maximum = Duration::from_secs(60);
         let mut delay = Duration::from_secs(1);
         let mut observed = Vec::new();
@@ -458,31 +454,55 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn limiter_admits_five_requests_and_delays_the_sixth() {
-        let limiter = Arc::new(RateLimiter::new(5, Duration::from_secs(10)));
-        for _ in 0..5 {
+    async fn limiter_admits_twenty_requests_and_delays_the_twenty_first() {
+        let limiter = Arc::new(RateLimiter::new(20, Duration::from_secs(10)));
+        for _ in 0..20 {
             limiter.wait_if_needed().await;
         }
 
-        let sixth = {
-            let limiter = limiter.clone();
+        let twenty_first = {
+            let limiter = Arc::clone(&limiter);
             tokio::spawn(async move { limiter.wait_if_needed().await })
         };
         tokio::task::yield_now().await;
-        assert!(!sixth.is_finished());
+        assert!(!twenty_first.is_finished());
 
         tokio::time::advance(Duration::from_secs(9)).await;
         tokio::task::yield_now().await;
-        assert!(!sixth.is_finished());
+        assert!(!twenty_first.is_finished());
 
         tokio::time::advance(Duration::from_secs(1)).await;
-        sixth.await.unwrap();
+        twenty_first.await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn concurrent_waiters_recheck_the_window_before_admission() {
+        let limiter = Arc::new(RateLimiter::new(2, Duration::from_secs(10)));
+        limiter.wait_if_needed().await;
+        limiter.wait_if_needed().await;
+
+        let third = {
+            let limiter = Arc::clone(&limiter);
+            tokio::spawn(async move { limiter.wait_if_needed().await })
+        };
+        let fourth = {
+            let limiter = Arc::clone(&limiter);
+            tokio::spawn(async move { limiter.wait_if_needed().await })
+        };
+        tokio::task::yield_now().await;
+        assert!(!third.is_finished());
+        assert!(!fourth.is_finished());
+
+        tokio::time::advance(Duration::from_secs(10)).await;
+        third.await.unwrap();
+        fourth.await.unwrap();
+        assert_eq!(limiter.request_times.lock().await.len(), 2);
     }
 
     #[tokio::test]
     async fn batch_retries_reacquire_limiter_and_stop_at_configured_limit() {
         let (base_url, request_count) =
-            spawn_pyth_server(vec![StatusCode::TOO_MANY_REQUESTS], Some("0")).await;
+            spawn_pyth_server(vec![StatusCode::TOO_MANY_REQUESTS]).await;
         let provider = PythProvider::with_config(
             base_url,
             PythRateLimitConfig {
@@ -507,11 +527,8 @@ mod tests {
 
     #[tokio::test]
     async fn batch_retry_waits_for_configured_backoff_before_success() {
-        let (base_url, request_count) = spawn_pyth_server(
-            vec![StatusCode::TOO_MANY_REQUESTS, StatusCode::OK],
-            Some("0"),
-        )
-        .await;
+        let (base_url, request_count) =
+            spawn_pyth_server(vec![StatusCode::TOO_MANY_REQUESTS, StatusCode::OK]).await;
         let backoff = Duration::from_millis(50);
         let provider = PythProvider::with_config(
             base_url,
