@@ -19,6 +19,21 @@ use tokio::sync::RwLock;
 // 전역 CacheManager 인스턴스
 static CACHE_MANAGER: OnceCell<Arc<CacheManager>> = OnceCell::new();
 
+fn take_price_blocks_before_or_equal(
+    blocks: &mut std::collections::BTreeSet<i64>,
+    cutoff: i64,
+) -> Vec<i64> {
+    let mut removed = Vec::new();
+    while let Some(oldest) = blocks.first().copied() {
+        if oldest > cutoff {
+            break;
+        }
+        blocks.remove(&oldest);
+        removed.push(oldest);
+    }
+    removed
+}
+
 /// Token 정보 캐싱을 위한 관리자 구조체
 /// Redis를 1차 캐시로 사용하고, PostgreSQL을 2차 저장소로 사용합니다.
 pub struct CacheManager {
@@ -27,9 +42,11 @@ pub struct CacheManager {
     // Per-quote USD price cache (Pyth feed). quote_id -> (block_number -> price)
     // Source: external oracle (Pyth). Meaning: USD price of `quote_id` at block.
     price_cache: Arc<DashMap<String, DashMap<i64, Arc<BigDecimal>>>>,
-    // Per-quote insertion order for cleanup. quote_id -> VecDeque<block_number>
-    price_insertion_order:
-        Arc<RwLock<std::collections::HashMap<String, std::collections::VecDeque<i64>>>>,
+    // Per-quote block index for cleanup. Block ordering, rather than insertion
+    // ordering, keeps eviction correct when stream-side canonical writes race
+    // ahead of older receiver batches.
+    price_block_index:
+        Arc<RwLock<std::collections::HashMap<String, std::collections::BTreeSet<i64>>>>,
     // Per-token WMON-implied price cache (on-chain inferred). token_id -> (block_number -> price-in-WMON).
     // Source: derived from RawSync reserve ratios as swaps are processed.
     // Meaning: how much WMON one unit of `token_id` is worth at block, expressed in
@@ -83,7 +100,7 @@ impl CacheManager {
         let redis = RedisDatabase::instance()?;
         let postgres = PostgresDatabase::instance()?;
         let price_cache = Arc::new(DashMap::new());
-        let price_insertion_order = Arc::new(RwLock::new(std::collections::HashMap::new()));
+        let price_block_index = Arc::new(RwLock::new(std::collections::HashMap::new()));
         let token_price_cache = Arc::new(DashMap::new());
         let token_price_insertion_order = Arc::new(RwLock::new(std::collections::HashMap::new()));
         let token_decimals_cache = Arc::new(DashMap::new());
@@ -126,7 +143,7 @@ impl CacheManager {
             redis,
             postgres,
             price_cache,
-            price_insertion_order,
+            price_block_index,
             token_price_cache,
             token_price_insertion_order,
             token_decimals_cache,
@@ -171,7 +188,7 @@ impl CacheManager {
             return Ok(());
         }
 
-        let mut order_map = self.price_insertion_order.write().await;
+        let mut block_index = self.price_block_index.write().await;
         let mut total_loaded = 0usize;
 
         for (quote_id, block_number, price) in prices {
@@ -181,10 +198,10 @@ impl CacheManager {
                 .or_insert_with(|| DashMap::with_capacity(500));
             inner.insert(block_number, Arc::new(price));
 
-            order_map
+            block_index
                 .entry(quote_id)
-                .or_insert_with(std::collections::VecDeque::new)
-                .push_back(block_number);
+                .or_default()
+                .insert(block_number);
 
             total_loaded += 1;
         }
@@ -192,7 +209,7 @@ impl CacheManager {
         info!(
             "[CACHE] Preloaded {} prices into unified cache ({} quotes) from start_block={}",
             total_loaded,
-            order_map.len(),
+            block_index.len(),
             start_block
         );
         Ok(())
@@ -507,21 +524,21 @@ impl CacheManager {
         block_number: i64,
         price: BigDecimal,
     ) {
-        // The order RwLock serializes inserts against
+        // The block-index RwLock serializes inserts against
         // `remove_prices_before_or_equal_for_quote`. Acquiring it BEFORE the
         // inner DashMap mutation ensures cleanup never observes an inner entry
-        // that hasn't been recorded in the order map yet — preventing spurious
+        // that hasn't been recorded in the block index yet — preventing spurious
         // deletes of just-inserted prices.
-        let mut order_map = self.price_insertion_order.write().await;
+        let mut block_index = self.price_block_index.write().await;
         let inner = self
             .price_cache
             .entry(quote_id.to_string())
             .or_insert_with(|| DashMap::with_capacity(500));
         inner.insert(block_number, Arc::new(price));
-        order_map
+        block_index
             .entry(quote_id.to_string())
-            .or_insert_with(std::collections::VecDeque::new)
-            .push_back(block_number);
+            .or_default()
+            .insert(block_number);
 
         debug!(
             "Price cached: quote={} block={} cache_size={}",
@@ -537,10 +554,10 @@ impl CacheManager {
             return;
         }
 
-        // Same invariant as `insert_price_for_quote`: acquire the order lock
+        // Same invariant as `insert_price_for_quote`: acquire the block-index lock
         // before mutating the inner DashMap so cleanup cannot interleave and
-        // delete inserts that aren't yet recorded in the order map.
-        let mut order_map = self.price_insertion_order.write().await;
+        // delete inserts that aren't yet recorded in the block index.
+        let mut block_index = self.price_block_index.write().await;
         let inner = self
             .price_cache
             .entry(quote_id.to_string())
@@ -548,11 +565,9 @@ impl CacheManager {
         for (block_number, price) in prices {
             inner.insert(*block_number, Arc::new(price.clone()));
         }
-        let order = order_map
-            .entry(quote_id.to_string())
-            .or_insert_with(std::collections::VecDeque::new);
+        let order = block_index.entry(quote_id.to_string()).or_default();
         for (block_number, _) in prices {
-            order.push_back(*block_number);
+            order.insert(*block_number);
         }
 
         debug!(
@@ -787,16 +802,12 @@ impl CacheManager {
 
     /// Cleanup: remove cached prices at or below `block_number` for a specific quote.
     pub async fn remove_prices_before_or_equal_for_quote(&self, quote_id: &str, block_number: i64) {
-        let mut order_map = self.price_insertion_order.write().await;
-        if let Some(order) = order_map.get_mut(quote_id) {
-            while let Some(&oldest) = order.front() {
-                if oldest <= block_number {
-                    order.pop_front();
-                    if let Some(inner) = self.price_cache.get(quote_id) {
-                        inner.remove(&oldest);
-                    }
-                } else {
-                    break;
+        let mut block_index = self.price_block_index.write().await;
+        if let Some(order) = block_index.get_mut(quote_id) {
+            let removed = take_price_blocks_before_or_equal(order, block_number);
+            if let Some(inner) = self.price_cache.get(quote_id) {
+                for removed_block in removed {
+                    inner.remove(&removed_block);
                 }
             }
         }
@@ -1462,5 +1473,24 @@ impl CacheManager {
                 Ok(event_sender.to_string())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::take_price_blocks_before_or_equal;
+
+    #[test]
+    fn price_cleanup_handles_future_canonical_insert_before_older_receiver_batch() {
+        let mut blocks = BTreeSet::new();
+        blocks.insert(900);
+        blocks.extend([800, 801, 899, 900]);
+
+        let removed = take_price_blocks_before_or_equal(&mut blocks, 850);
+
+        assert_eq!(removed, vec![800, 801]);
+        assert_eq!(blocks, BTreeSet::from([899, 900]));
     }
 }

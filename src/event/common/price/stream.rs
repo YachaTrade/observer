@@ -1,13 +1,18 @@
-use std::{collections::HashMap, future::Future, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    future::Future,
+    time::Duration,
+};
 
 use anyhow::Result;
+use bigdecimal::BigDecimal;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 use tracing::{error, info, instrument, warn};
 
 use crate::{
     client::RpcClient,
-    config::{BLOCK_BATCH_SIZE, quote_configs},
+    config::{BLOCK_BATCH_SIZE, QuoteConfig, quote_configs},
     db::cache::CacheManager,
     event::{
         common::price::{PriceEventChannel, provider},
@@ -19,9 +24,159 @@ use crate::{
 
 use super::receive::receive_events;
 
+const PRICE_BUCKET_BLOCK_INTERVAL: u64 = 100;
+
+fn canonical_bucket_block(block_number: u64) -> u64 {
+    block_number - (block_number % PRICE_BUCKET_BLOCK_INTERVAL)
+}
+
+fn group_block_timestamps_by_bucket(blocks: Vec<(u64, u64)>) -> BTreeMap<u64, Vec<(u64, u64)>> {
+    let mut buckets = BTreeMap::new();
+    for (block_number, block_timestamp) in blocks {
+        buckets
+            .entry(canonical_bucket_block(block_number))
+            .or_insert_with(Vec::new)
+            .push((block_number, block_timestamp));
+    }
+    buckets
+}
+
+fn canonical_timestamp_from_range(bucket_block: u64, blocks: &[(u64, u64)]) -> Option<u64> {
+    blocks
+        .iter()
+        .find_map(|(block, timestamp)| (*block == bucket_block).then_some(*timestamp))
+}
+
+fn expand_bucket_events(
+    blocks: &[(u64, u64)],
+    quote_prices: &BTreeMap<String, BigDecimal>,
+) -> Vec<UpdatePrice> {
+    let mut events = Vec::with_capacity(blocks.len() * quote_prices.len());
+    for (quote_id, price) in quote_prices {
+        for (block_number, block_timestamp) in blocks {
+            events.push(UpdatePrice {
+                quote_id: quote_id.clone(),
+                block_number: *block_number,
+                price: price.clone(),
+                block_timestamp: *block_timestamp,
+            });
+        }
+    }
+    events
+}
+
+fn all_quotes_resolved(quotes: &[QuoteConfig], prices: &BTreeMap<String, BigDecimal>) -> bool {
+    quotes
+        .iter()
+        .all(|quote| prices.contains_key(&quote.address))
+}
+
+fn merge_missing_quote_prices(
+    quotes: &[QuoteConfig],
+    prices: &mut BTreeMap<String, BigDecimal>,
+    fetched: &HashMap<String, BigDecimal>,
+) -> Vec<(String, BigDecimal)> {
+    let mut newly_resolved = Vec::new();
+    for quote in quotes {
+        if prices.contains_key(&quote.address) {
+            continue;
+        }
+        let feed_id = provider::normalize_feed_id(&quote.pyth_feed_id);
+        if let Some(price) = fetched.get(&feed_id) {
+            prices.insert(quote.address.clone(), price.clone());
+            newly_resolved.push((quote.address.clone(), price.clone()));
+        }
+    }
+    newly_resolved
+}
+
+enum BucketFetchOutcome {
+    SkippedCached,
+    Fetched {
+        canonical_block: u64,
+        newly_resolved: Vec<(String, BigDecimal)>,
+    },
+    Failed {
+        canonical_block: u64,
+        canonical_timestamp: Option<u64>,
+        error: anyhow::Error,
+    },
+}
+
+struct BucketResolution {
+    prices: BTreeMap<String, BigDecimal>,
+    fetch: BucketFetchOutcome,
+}
+
+async fn resolve_bucket_prices<F, Fut>(
+    bucket_block: u64,
+    blocks: &[(u64, u64)],
+    quotes: &[QuoteConfig],
+    mut prices: BTreeMap<String, BigDecimal>,
+    price_provider: &dyn provider::PriceProvider,
+    load_timestamp: F,
+) -> BucketResolution
+where
+    F: FnOnce(u64) -> Fut,
+    Fut: Future<Output = Result<u64>>,
+{
+    if all_quotes_resolved(quotes, &prices) {
+        return BucketResolution {
+            prices,
+            fetch: BucketFetchOutcome::SkippedCached,
+        };
+    }
+
+    let canonical_timestamp = match canonical_timestamp_from_range(bucket_block, blocks) {
+        Some(timestamp) => timestamp,
+        None => match load_timestamp(bucket_block).await {
+            Ok(timestamp) => timestamp,
+            Err(error) => {
+                return BucketResolution {
+                    prices,
+                    fetch: BucketFetchOutcome::Failed {
+                        canonical_block: bucket_block,
+                        canonical_timestamp: None,
+                        error,
+                    },
+                };
+            }
+        },
+    };
+
+    let feed_ids: Vec<&str> = quotes
+        .iter()
+        .map(|quote| quote.pyth_feed_id.as_str())
+        .collect();
+    match price_provider
+        .fetch_batch(&feed_ids, canonical_timestamp)
+        .await
+    {
+        Ok(fetched) => {
+            let newly_resolved = merge_missing_quote_prices(quotes, &mut prices, &fetched);
+            BucketResolution {
+                prices,
+                fetch: BucketFetchOutcome::Fetched {
+                    canonical_block: bucket_block,
+                    newly_resolved,
+                },
+            }
+        }
+        Err(error) => BucketResolution {
+            prices,
+            fetch: BucketFetchOutcome::Failed {
+                canonical_block: bucket_block,
+                canonical_timestamp: Some(canonical_timestamp),
+                error,
+            },
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::{BTreeMap, HashMap},
         sync::{
             Arc,
             atomic::{AtomicUsize, Ordering},
@@ -29,9 +184,285 @@ mod tests {
         time::Duration,
     };
 
+    use anyhow::Result;
+    use async_trait::async_trait;
+    use bigdecimal::BigDecimal;
+    use tokio::sync::Mutex;
     use tokio::time::sleep;
 
-    use super::collect_block_timestamps;
+    use crate::{config::QuoteConfig, event::common::price::provider::PriceProvider};
+
+    use super::{
+        BucketFetchOutcome, all_quotes_resolved, canonical_bucket_block,
+        canonical_timestamp_from_range, collect_block_timestamps, expand_bucket_events,
+        group_block_timestamps_by_bucket, merge_missing_quote_prices, resolve_bucket_prices,
+    };
+
+    fn quote(address: &str, feed: &str) -> QuoteConfig {
+        QuoteConfig {
+            address: address.to_string(),
+            pyth_feed_id: feed.to_string(),
+            decimals: BigDecimal::from(18),
+        }
+    }
+
+    struct RecordingProvider {
+        calls: AtomicUsize,
+        timestamps: Mutex<Vec<u64>>,
+        prices: HashMap<String, BigDecimal>,
+        fail: bool,
+    }
+
+    #[async_trait]
+    impl PriceProvider for RecordingProvider {
+        async fn fetch(&self, _feed_id: &str, _timestamp: u64) -> Result<Option<BigDecimal>> {
+            Ok(None)
+        }
+
+        async fn fetch_batch(
+            &self,
+            _feed_ids: &[&str],
+            timestamp: u64,
+        ) -> Result<HashMap<String, BigDecimal>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.timestamps.lock().await.push(timestamp);
+            if self.fail {
+                return Err(anyhow::anyhow!("provider failure"));
+            }
+            Ok(self.prices.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn cached_bucket_skips_timestamp_and_provider_orchestration() {
+        let quotes = vec![quote("quote-a", "feed-a")];
+        let cached = BTreeMap::from([("quote-a".to_string(), BigDecimal::from(10))]);
+        let provider = RecordingProvider {
+            calls: AtomicUsize::new(0),
+            timestamps: Mutex::new(Vec::new()),
+            prices: HashMap::new(),
+            fail: false,
+        };
+
+        let resolution = resolve_bucket_prices(
+            800,
+            &[(855, 1_855)],
+            &quotes,
+            cached,
+            &provider,
+            |_| async { Err(anyhow::anyhow!("timestamp lookup must be skipped")) },
+        )
+        .await;
+
+        assert!(matches!(
+            resolution.fetch,
+            BucketFetchOutcome::SkippedCached
+        ));
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
+        assert!(provider.timestamps.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn mid_bucket_miss_fetches_boundary_timestamp_and_returns_canonical_cache_update() {
+        let quotes = vec![quote("quote-a", "0xfeed-a")];
+        let provider = RecordingProvider {
+            calls: AtomicUsize::new(0),
+            timestamps: Mutex::new(Vec::new()),
+            prices: HashMap::from([("feed-a".to_string(), BigDecimal::from(42))]),
+            fail: false,
+        };
+        let requested_blocks = Arc::new(Mutex::new(Vec::new()));
+
+        let resolution =
+            resolve_bucket_prices(800, &[(855, 1_855)], &quotes, BTreeMap::new(), &provider, {
+                let requested_blocks = Arc::clone(&requested_blocks);
+                move |block| async move {
+                    requested_blocks.lock().await.push(block);
+                    Ok(1_800)
+                }
+            })
+            .await;
+
+        let BucketFetchOutcome::Fetched {
+            canonical_block,
+            newly_resolved,
+        } = resolution.fetch
+        else {
+            panic!("expected a provider fetch");
+        };
+        assert_eq!(canonical_block, 800);
+        assert_eq!(
+            newly_resolved,
+            vec![("quote-a".to_string(), BigDecimal::from(42))]
+        );
+        assert_eq!(*requested_blocks.lock().await, vec![800]);
+        assert_eq!(*provider.timestamps.lock().await, vec![1_800]);
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(resolution.prices["quote-a"], BigDecimal::from(42));
+    }
+
+    #[tokio::test]
+    async fn later_failed_bucket_does_not_discard_earlier_bucket_events() {
+        let quotes = vec![quote("quote-a", "feed-a")];
+        let successful_provider = RecordingProvider {
+            calls: AtomicUsize::new(0),
+            timestamps: Mutex::new(Vec::new()),
+            prices: HashMap::from([("feed-a".to_string(), BigDecimal::from(42))]),
+            fail: false,
+        };
+        let failed_provider = RecordingProvider {
+            calls: AtomicUsize::new(0),
+            timestamps: Mutex::new(Vec::new()),
+            prices: HashMap::new(),
+            fail: true,
+        };
+        let mut events = Vec::new();
+
+        let first = resolve_bucket_prices(
+            800,
+            &[(899, 1_899)],
+            &quotes,
+            BTreeMap::new(),
+            &successful_provider,
+            |_| async { Ok(1_800) },
+        )
+        .await;
+        events.extend(expand_bucket_events(&[(899, 1_899)], &first.prices));
+
+        let second = resolve_bucket_prices(
+            900,
+            &[(900, 1_900)],
+            &quotes,
+            BTreeMap::new(),
+            &failed_provider,
+            |_| async { Ok(1_900) },
+        )
+        .await;
+        assert!(matches!(
+            second.fetch,
+            BucketFetchOutcome::Failed {
+                canonical_block: 900,
+                canonical_timestamp: Some(1_900),
+                ..
+            }
+        ));
+        events.extend(expand_bucket_events(&[(900, 1_900)], &second.prices));
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].block_number, 899);
+        assert_eq!(events[0].price, BigDecimal::from(42));
+    }
+
+    #[test]
+    fn fully_cached_bucket_does_not_need_provider_fetch() {
+        let quotes = vec![quote("quote-a", "feed-a"), quote("quote-b", "feed-b")];
+        let prices = BTreeMap::from([
+            ("quote-a".to_string(), BigDecimal::from(10)),
+            ("quote-b".to_string(), BigDecimal::from(20)),
+        ]);
+
+        assert!(all_quotes_resolved(&quotes, &prices));
+    }
+
+    #[test]
+    fn missing_canonical_quote_requires_provider_fetch() {
+        let quotes = vec![quote("quote-a", "feed-a"), quote("quote-b", "feed-b")];
+        let prices = BTreeMap::from([("quote-a".to_string(), BigDecimal::from(10))]);
+
+        assert!(!all_quotes_resolved(&quotes, &prices));
+    }
+
+    #[test]
+    fn provider_results_fill_only_missing_quotes() {
+        let quotes = vec![quote("quote-a", "feed-a"), quote("quote-b", "feed-b")];
+        let mut prices = BTreeMap::from([("quote-a".to_string(), BigDecimal::from(10))]);
+        let fetched = HashMap::from([
+            ("feed-a".to_string(), BigDecimal::from(999)),
+            ("feed-b".to_string(), BigDecimal::from(20)),
+        ]);
+
+        let newly_resolved = merge_missing_quote_prices(&quotes, &mut prices, &fetched);
+
+        assert_eq!(prices["quote-a"], BigDecimal::from(10));
+        assert_eq!(prices["quote-b"], BigDecimal::from(20));
+        assert_eq!(
+            newly_resolved,
+            vec![("quote-b".to_string(), BigDecimal::from(20))]
+        );
+    }
+
+    #[test]
+    fn unresolved_provider_quote_does_not_discard_cached_quote_events() {
+        let quotes = vec![quote("quote-a", "feed-a"), quote("quote-b", "feed-b")];
+        let mut prices = BTreeMap::from([("quote-a".to_string(), BigDecimal::from(10))]);
+
+        let newly_resolved = merge_missing_quote_prices(&quotes, &mut prices, &HashMap::new());
+        let events = expand_bucket_events(&[(855, 1_855)], &prices);
+
+        assert!(newly_resolved.is_empty());
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].quote_id, "quote-a");
+        assert_eq!(events[0].block_number, 855);
+        assert_eq!(events[0].price, BigDecimal::from(10));
+    }
+
+    #[test]
+    fn canonical_price_bucket_floors_to_the_absolute_hundred_block() {
+        assert_eq!(canonical_bucket_block(800), 800);
+        assert_eq!(canonical_bucket_block(801), 800);
+        assert_eq!(canonical_bucket_block(899), 800);
+        assert_eq!(canonical_bucket_block(900), 900);
+    }
+
+    #[test]
+    fn groups_blocks_across_hundred_block_boundaries() {
+        let buckets =
+            group_block_timestamps_by_bucket(vec![(899, 1_899), (900, 1_900), (901, 1_901)]);
+
+        assert_eq!(buckets.get(&800), Some(&vec![(899, 1_899)]));
+        assert_eq!(buckets.get(&900), Some(&vec![(900, 1_900), (901, 1_901)]));
+    }
+
+    #[test]
+    fn mid_bucket_range_requires_canonical_boundary_timestamp_fallback() {
+        assert_eq!(
+            canonical_timestamp_from_range(800, &[(855, 1_855), (856, 1_856)]),
+            None
+        );
+        assert_eq!(
+            canonical_timestamp_from_range(800, &[(800, 1_800), (801, 1_801)]),
+            Some(1_800)
+        );
+    }
+
+    #[test]
+    fn expands_one_canonical_price_to_every_block_in_the_bucket() {
+        let blocks = vec![(801, 1_801), (802, 1_802), (899, 1_899)];
+        let quote_prices = BTreeMap::from([("quote-a".to_string(), BigDecimal::from(3_500))]);
+
+        let events = expand_bucket_events(&blocks, &quote_prices);
+
+        assert_eq!(events.len(), 3);
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.block_number)
+                .collect::<Vec<_>>(),
+            vec![801, 802, 899]
+        );
+        assert!(
+            events
+                .iter()
+                .all(|event| event.price == BigDecimal::from(3_500))
+        );
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.block_timestamp)
+                .collect::<Vec<_>>(),
+            vec![1_801, 1_802, 1_899]
+        );
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn bounded_collection_overlaps_and_keeps_peak_in_flight_under_limit() {
@@ -153,12 +584,11 @@ where
     Ok(collected)
 }
 
-/// Cadence for the price stream loop. With Pyth's 30 req / 10s budget and
-/// 2s timestamp normalization, a 10s cycle keeps each iteration's fetch
-/// count well below the limit (≈ quote_count × 5 fetches per cycle).
-/// Catch-up iterations whose body already exceeds POLL_INTERVAL skip the
-/// sleep and run back-to-back, so this caps idle frequency without
-/// throttling backfill.
+/// Cadence for checking stream progress. Pyth fetch frequency is governed by
+/// canonical 100-block cache misses and the provider's request limiter.
+/// Catch-up iterations whose body already exceeds `POLL_INTERVAL` skip the
+/// sleep and run back-to-back, so this caps idle frequency without throttling
+/// backfill.
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
 
 async fn wait_for_next_cycle(iteration_started: Instant) {
@@ -207,8 +637,6 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
 
         let mut events: Vec<UpdatePrice> = Vec::new();
 
-        // Group blocks by normalized timestamp while keeping original timestamp info
-        let mut timestamp_to_blocks: HashMap<u64, Vec<(u64, u64)>> = HashMap::new();
         let block_timestamps = match collect_block_timestamps(
             from_block,
             to_block,
@@ -224,116 +652,90 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
                 continue 'stream;
             }
         };
+        let bucket_to_blocks = group_block_timestamps_by_bucket(block_timestamps);
 
-        for (block_number, block_timestamp) in block_timestamps {
-            const BUCKET_BLOCK_INTERVAL: u64 = 25;
-            let bucket_block = block_number - (block_number % BUCKET_BLOCK_INTERVAL);
-            timestamp_to_blocks
-                .entry(bucket_block)
-                .or_default()
-                .push((block_number, block_timestamp));
-        }
-
-        // Batch-fetch prices for ALL quote tokens at each timestamp.
-        // One Pyth call per (timestamp) regardless of quote count, so the
-        // request budget scales with chain block production, not the size
-        // of the quote set.
+        // Resolve every quote at the absolute 100-block boundary. A fully
+        // cached bucket makes no provider call; otherwise all feeds are
+        // fetched in one Pyth request at the canonical block timestamp.
         let mut fetch_attempted = 0usize;
         let mut fetch_skipped_cached = 0usize;
         let mut fetch_succeeded = 0usize;
         let mut fetch_failed = 0usize;
-        let mut bucket_blocks: Vec<u64> = timestamp_to_blocks.keys().copied().collect();
-        bucket_blocks.sort_unstable();
-        for bucket_block in bucket_blocks {
-            let block_data = timestamp_to_blocks
-                .get(&bucket_block)
-                .expect("bucket key collected from timestamp_to_blocks");
-            // Skip the bucket only if every quote already has a cached
-            // price for the first block in the bucket. Any miss → batch fetch.
-            let first_block = block_data.first().map(|(block, _)| *block as i64);
-            let mut needs_fetch = first_block.is_none();
-            if let Some(block_num) = first_block {
-                for q in quote_configs().iter() {
-                    if cache_manager
-                        .get_price_for_quote(&q.address, block_num)
-                        .await
-                        .is_none()
-                    {
-                        needs_fetch = true;
-                        break;
-                    }
+        for (bucket_block, block_data) in &bucket_to_blocks {
+            let mut cached_prices = BTreeMap::new();
+            for quote in quote_configs() {
+                if let Some(price) = cache_manager
+                    .get_price_for_quote(&quote.address, *bucket_block as i64)
+                    .await
+                {
+                    cached_prices.insert(quote.address.clone(), price.as_ref().clone());
                 }
             }
-            if !needs_fetch {
-                fetch_skipped_cached += 1;
-                continue;
-            }
 
-            // Query Pyth with the bucket block's own timestamp so both
-            // services hit the same /v2/updates/price/{ts} regardless of
-            // which catch-up cycle is currently processing this bucket.
-            let bucket_timestamp = match block_data
-                .iter()
-                .find_map(|(block, timestamp)| (*block == bucket_block).then_some(*timestamp))
-            {
-                Some(timestamp) => timestamp,
-                None => match get_block_timestamp(client, bucket_block).await {
-                    Ok(timestamp) => timestamp,
-                    Err(error) => {
-                        error!(
-                            "[PRICE] Failed to load aligned bucket timestamp for block {}: {}",
-                            bucket_block, error
-                        );
-                        fetch_failed += 1;
-                        continue;
-                    }
-                },
-            };
+            let BucketResolution {
+                prices: resolved_prices,
+                fetch,
+            } = resolve_bucket_prices(
+                *bucket_block,
+                block_data,
+                quote_configs(),
+                cached_prices,
+                price_provider.as_ref(),
+                move |block| async move { get_block_timestamp(client, block).await },
+            )
+            .await;
 
-            let feed_ids: Vec<&str> = quote_configs()
-                .iter()
-                .map(|q| q.pyth_feed_id.as_str())
-                .collect();
-
-            fetch_attempted += 1;
-            match price_provider
-                .fetch_batch(&feed_ids, bucket_timestamp)
-                .await
-            {
-                Ok(prices) => {
+            match fetch {
+                BucketFetchOutcome::SkippedCached => {
+                    fetch_skipped_cached += 1;
+                }
+                BucketFetchOutcome::Fetched {
+                    canonical_block,
+                    newly_resolved,
+                } => {
+                    fetch_attempted += 1;
                     fetch_succeeded += 1;
-                    for q in quote_configs().iter() {
-                        let key = provider::normalize_feed_id(&q.pyth_feed_id);
-                        let Some(price) = prices.get(&key) else {
-                            warn!(
-                                "[PRICE] Batch response missing feed for quote {} (feed_id={}) at timestamp {}",
-                                q.address, q.pyth_feed_id, bucket_timestamp
-                            );
-                            continue;
-                        };
-                        for (block_number, original_timestamp) in block_data {
-                            events.push(UpdatePrice {
-                                quote_id: q.address.clone(),
-                                block_number: *block_number,
-                                price: price.clone(),
-                                block_timestamp: *original_timestamp,
-                            });
-                        }
+                    for (quote_id, price) in newly_resolved {
+                        cache_manager
+                            .insert_price_for_quote(&quote_id, canonical_block as i64, price)
+                            .await;
                     }
                 }
-                Err(e) => {
+                BucketFetchOutcome::Failed {
+                    canonical_block,
+                    canonical_timestamp,
+                    error: fetch_error,
+                } => {
                     fetch_failed += 1;
-                    error!(
-                        "[PRICE] Batch fetch failed at timestamp {}: {}",
-                        bucket_timestamp, e
+                    if let Some(canonical_timestamp) = canonical_timestamp {
+                        fetch_attempted += 1;
+                        error!(
+                            "[PRICE] Batch fetch failed at canonical block {} timestamp {}: {}",
+                            canonical_block, canonical_timestamp, fetch_error
+                        );
+                    } else {
+                        error!(
+                            "[PRICE] Failed to load canonical bucket timestamp for block {}: {}",
+                            canonical_block, fetch_error
+                        );
+                    }
+                }
+            }
+
+            for quote in quote_configs() {
+                if !resolved_prices.contains_key(&quote.address) {
+                    warn!(
+                        "[PRICE] Canonical bucket {} has no price for quote {} (feed_id={})",
+                        bucket_block, quote.address, quote.pyth_feed_id
                     );
                 }
             }
+            events.extend(expand_bucket_events(block_data, &resolved_prices));
         }
 
         info!(
-            "[PRICE] cycle ts_buckets={} fetched={} skipped_cached={} ok={} fail={}",
-            timestamp_to_blocks.len(),
+            "[PRICE] cycle canonical_buckets={} fetched={} skipped_cached={} ok={} fail={}",
+            bucket_to_blocks.len(),
             fetch_attempted,
             fetch_skipped_cached,
             fetch_succeeded,
