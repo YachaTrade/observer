@@ -1,6 +1,7 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, future::Future, time::Duration};
 
 use anyhow::Result;
+use tokio::task::JoinSet;
 use tokio::time::Instant;
 use tracing::{error, info, instrument, warn};
 
@@ -18,6 +19,140 @@ use crate::{
 
 use super::receive::receive_events;
 
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+        time::Duration,
+    };
+
+    use tokio::time::sleep;
+
+    use super::collect_block_timestamps;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bounded_collection_overlaps_and_keeps_peak_in_flight_under_limit() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+
+        let result = collect_block_timestamps(10, 14, 2, {
+            let active = Arc::clone(&active);
+            let peak = Arc::clone(&peak);
+            move |block_number| {
+                let active = Arc::clone(&active);
+                let peak = Arc::clone(&peak);
+                async move {
+                    let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    let mut observed = peak.load(Ordering::SeqCst);
+                    while current > observed
+                        && peak
+                            .compare_exchange(observed, current, Ordering::SeqCst, Ordering::SeqCst)
+                            .is_err()
+                    {
+                        observed = peak.load(Ordering::SeqCst);
+                    }
+                    sleep(Duration::from_millis(20)).await;
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    Ok::<_, anyhow::Error>(block_number + 100)
+                }
+            }
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(
+            result,
+            vec![(10, 110), (11, 111), (12, 112), (13, 113), (14, 114)]
+        );
+        let peak = peak.load(Ordering::SeqCst);
+        assert!(peak > 1, "timestamp lookups did not overlap");
+        assert!(peak <= 2, "timestamp concurrency exceeded the limit");
+    }
+
+    #[tokio::test]
+    async fn bounded_collection_returns_sorted_blocks_after_out_of_order_completion() {
+        let result = collect_block_timestamps(1, 4, 4, |block_number| async move {
+            let delay = match block_number {
+                1 => 40,
+                2 => 10,
+                3 => 30,
+                _ => 0,
+            };
+            sleep(Duration::from_millis(delay)).await;
+            Ok::<_, anyhow::Error>(block_number + 1_000)
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(result, vec![(1, 1_001), (2, 1_002), (3, 1_003), (4, 1_004)]);
+    }
+
+    #[tokio::test]
+    async fn bounded_collection_rejects_the_entire_range_on_one_error() {
+        let error = collect_block_timestamps(7, 9, 2, |block_number| async move {
+            if block_number == 8 {
+                Err::<u64, _>(anyhow::anyhow!("timestamp lookup failed"))
+            } else {
+                Ok(block_number + 10)
+            }
+        })
+        .await
+        .unwrap_err();
+
+        assert!(error.to_string().contains("block 8"));
+        assert!(error.to_string().contains("timestamp lookup failed"));
+    }
+}
+
+pub(crate) async fn collect_block_timestamps<F, Fut>(
+    from_block: u64,
+    to_block: u64,
+    max_concurrency: usize,
+    load_timestamp: F,
+) -> Result<Vec<(u64, u64)>>
+where
+    F: Fn(u64) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<u64>> + Send + 'static,
+{
+    let limit = max_concurrency.max(1);
+    let mut join_set = JoinSet::new();
+    let mut next_block = from_block;
+    let mut collected = Vec::with_capacity((to_block - from_block + 1) as usize);
+
+    while next_block <= to_block || !join_set.is_empty() {
+        while next_block <= to_block && join_set.len() < limit {
+            let block_number = next_block;
+            next_block += 1;
+            let future = load_timestamp(block_number);
+            join_set.spawn(async move {
+                let result = future.await;
+                (block_number, result)
+            });
+        }
+
+        let Some(join_result) = join_set.join_next().await else {
+            break;
+        };
+
+        let (block_number, result) =
+            join_result.map_err(|error| anyhow::anyhow!("timestamp task join failed: {error}"))?;
+        let timestamp = result.map_err(|error| {
+            anyhow::anyhow!(
+                "failed to load timestamp for block {}: {}",
+                block_number,
+                error
+            )
+        })?;
+        collected.push((block_number, timestamp));
+    }
+
+    collected.sort_by_key(|(block_number, _)| *block_number);
+    Ok(collected)
+}
+
 /// Cadence for the price stream loop. With Pyth's 30 req / 10s budget and
 /// 2s timestamp normalization, a 10s cycle keeps each iteration's fetch
 /// count well below the limit (≈ quote_count × 5 fetches per cycle).
@@ -25,6 +160,12 @@ use super::receive::receive_events;
 /// sleep and run back-to-back, so this caps idle frequency without
 /// throttling backfill.
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
+
+async fn wait_for_next_cycle(iteration_started: Instant) {
+    if let Some(remaining) = POLL_INTERVAL.checked_sub(iteration_started.elapsed()) {
+        tokio::time::sleep(remaining).await;
+    }
+}
 
 #[instrument(skip(event_type))]
 pub async fn stream_events(event_type: EventType) -> Result<()> {
@@ -42,7 +183,7 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
     let cache_manager = CacheManager::instance()?;
     let price_provider = provider::build_provider()?;
 
-    loop {
+    'stream: loop {
         let iter_start = Instant::now();
         let latest_block = client.get_cached_latest_block();
         let time = Instant::now();
@@ -67,26 +208,24 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
         let mut events: Vec<UpdatePrice> = Vec::new();
 
         // Group blocks by normalized timestamp while keeping original timestamp info
-        let mut timestamp_to_blocks: HashMap<u64, Vec<(u64, u64)>> = HashMap::new(); // normalized_ts -> Vec<(block_number, original_ts)>
+        let mut timestamp_to_blocks: HashMap<u64, Vec<(u64, u64)>> = HashMap::new();
+        let block_timestamps = match collect_block_timestamps(
+            from_block,
+            to_block,
+            32,
+            move |block_number| async move { get_block_timestamp(client, block_number).await },
+        )
+        .await
+        {
+            Ok(block_timestamps) => block_timestamps,
+            Err(e) => {
+                error!("[PRICE] Failed to collect block timestamps: {}", e);
+                wait_for_next_cycle(iter_start).await;
+                continue 'stream;
+            }
+        };
 
-        for block_number in from_block..=to_block {
-            let block_timestamp = match get_block_timestamp(client, block_number).await {
-                Ok(ts) => ts,
-                Err(e) => {
-                    error!("Failed to get timestamp for block {}: {}", block_number, e);
-                    continue;
-                }
-            };
-
-            // Block-modulo-25 bucketing — every 25 blocks shares a single
-            // Pyth fetch. Block-modulo (vs the previous 10s
-            // timestamp-modulo) is fully deterministic regardless of the
-            // chain's block-time variance and matches websocket-server's
-            // BUCKET_BLOCK_INTERVAL exactly, so both services always query
-            // Pyth with the timestamp of the SAME bucket block. The price
-            // stored in observer's `price` table and the price cached in
-            // websocket-server's in-memory map never diverge for blocks
-            // that share a bucket.
+        for (block_number, block_timestamp) in block_timestamps {
             const BUCKET_BLOCK_INTERVAL: u64 = 25;
             let bucket_block = block_number - (block_number % BUCKET_BLOCK_INTERVAL);
             timestamp_to_blocks
@@ -102,8 +241,12 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
         let mut fetch_attempted = 0usize;
         let mut fetch_skipped_cached = 0usize;
         let mut fetch_succeeded = 0usize;
-        let mut fetch_failed = 0usize;
-        for (bucket_block, block_data) in &timestamp_to_blocks {
+        let mut bucket_blocks: Vec<u64> = timestamp_to_blocks.keys().copied().collect();
+        bucket_blocks.sort_unstable();
+        for bucket_block in bucket_blocks {
+            let block_data = timestamp_to_blocks
+                .get(&bucket_block)
+                .expect("bucket key collected from timestamp_to_blocks");
             // Skip the bucket only if every quote already has a cached
             // price for the first block in the bucket. Any miss → batch fetch.
             let first_block = block_data.first().map(|(block, _)| *block as i64);
@@ -128,16 +271,22 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
             // Query Pyth with the bucket block's own timestamp so both
             // services hit the same /v2/updates/price/{ts} regardless of
             // which catch-up cycle is currently processing this bucket.
-            let bucket_timestamp = match get_block_timestamp(client, *bucket_block).await {
-                Ok(ts) => ts,
-                Err(e) => {
-                    error!(
-                        "Failed to get timestamp for bucket block {}: {}",
-                        bucket_block, e
-                    );
-                    fetch_failed += 1;
-                    continue;
-                }
+            let bucket_timestamp = match block_data
+                .iter()
+                .find_map(|(block, timestamp)| (*block == bucket_block).then_some(*timestamp))
+            {
+                Some(timestamp) => timestamp,
+                None => match get_block_timestamp(client, bucket_block).await {
+                    Ok(timestamp) => timestamp,
+                    Err(error) => {
+                        error!(
+                            "[PRICE] Failed to load aligned bucket timestamp for block {}: {}",
+                            bucket_block, error
+                        );
+                        wait_for_next_cycle(iter_start).await;
+                        continue 'stream;
+                    }
+                },
             };
 
             let feed_ids: Vec<&str> = quote_configs()
@@ -155,11 +304,12 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
                     for q in quote_configs().iter() {
                         let key = provider::normalize_feed_id(&q.pyth_feed_id);
                         let Some(price) = prices.get(&key) else {
-                            warn!(
+                            error!(
                                 "[PRICE] Batch response missing feed for quote {} (feed_id={}) at timestamp {}",
                                 q.address, q.pyth_feed_id, bucket_timestamp
                             );
-                            continue;
+                            wait_for_next_cycle(iter_start).await;
+                            continue 'stream;
                         };
                         for (block_number, original_timestamp) in block_data {
                             events.push(UpdatePrice {
@@ -172,22 +322,22 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
                     }
                 }
                 Err(e) => {
-                    fetch_failed += 1;
                     error!(
                         "[PRICE] Batch fetch failed at timestamp {}: {}",
                         bucket_timestamp, e
                     );
+                    wait_for_next_cycle(iter_start).await;
+                    continue 'stream;
                 }
             }
         }
 
         info!(
-            "[PRICE] cycle ts_buckets={} fetched={} skipped_cached={} ok={} fail={}",
+            "[PRICE] cycle ts_buckets={} fetched={} skipped_cached={} ok={}",
             timestamp_to_blocks.len(),
             fetch_attempted,
             fetch_skipped_cached,
-            fetch_succeeded,
-            fetch_failed
+            fetch_succeeded
         );
 
         // Get stats before sending events
@@ -197,7 +347,7 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
 
         if let Err(e) = channel.send(events, to_block, latest_block).await {
             error!("[PRICE] Failed to send events: {}", e);
-            continue;
+            return Err(e);
         }
 
         let logging_format = format!(
@@ -215,8 +365,6 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
         // Cap idle iteration frequency at POLL_INTERVAL. If the iteration
         // already took longer than that (catch-up / large batch), this is a
         // no-op and the next iteration runs immediately.
-        if let Some(remaining) = POLL_INTERVAL.checked_sub(iter_start.elapsed()) {
-            tokio::time::sleep(remaining).await;
-        }
+        wait_for_next_cycle(iter_start).await;
     }
 }
