@@ -1,15 +1,18 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashSet, future::Future, sync::Arc, time::Duration};
 
-use anyhow::Result;
-use tokio::time::Instant;
+use anyhow::{Context, Result};
+use tokio::{sync::watch, time::Instant};
 use tracing::{error, info, instrument, warn};
 
 use crate::{
     client::RpcClient,
-    config::{BLOCK_BATCH_SIZE, quote_configs},
+    config::{BLOCK_BATCH_SIZE, QuoteConfig, quote_configs},
     db::cache::CacheManager,
     event::{
-        common::price::{PriceEventChannel, provider},
+        common::price::{
+            PriceEventChannel, provider,
+            sampler::{PRICE_HEAD_OFFSET, PriceSnapshot, run_sampler},
+        },
         get_block_timestamp,
     },
     sync::{BlockRange, EventType, stream::STREAM_MANAGER},
@@ -18,13 +21,67 @@ use crate::{
 
 use super::receive::receive_events;
 
-/// Cadence for the price stream loop. With Pyth's 30 req / 10s budget and
-/// 2s timestamp normalization, a 10s cycle keeps each iteration's fetch
-/// count well below the limit (≈ quote_count × 5 fetches per cycle).
+/// Cadence for Price range polling and checkpoint processing. Pyth sampling
+/// runs independently in the 30-second sampler.
 /// Catch-up iterations whose body already exceeds POLL_INTERVAL skip the
 /// sleep and run back-to-back, so this caps idle frequency without
 /// throttling backfill.
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
+
+fn build_events(
+    snapshot: &PriceSnapshot,
+    quotes: &[QuoteConfig],
+    blocks: &[(u64, u64)],
+    exact_cache_hits: &HashSet<(String, u64)>,
+) -> Vec<UpdatePrice> {
+    let mut events = Vec::with_capacity(blocks.len() * quotes.len());
+
+    for &(block_number, block_timestamp) in blocks {
+        for quote in quotes {
+            if exact_cache_hits.contains(&(quote.address.clone(), block_number)) {
+                continue;
+            }
+
+            let price = snapshot
+                .prices_by_quote
+                .get(&quote.address)
+                .expect("published price snapshot contains every configured quote");
+            events.push(UpdatePrice {
+                quote_id: quote.address.clone(),
+                block_number,
+                price: price.clone(),
+                block_timestamp,
+            });
+        }
+    }
+
+    events
+}
+
+fn current_snapshot(
+    receiver: &watch::Receiver<Option<Arc<PriceSnapshot>>>,
+) -> Option<Arc<PriceSnapshot>> {
+    receiver.borrow().clone()
+}
+
+async fn collect_block_timestamps<F, Fut>(
+    from_block: u64,
+    to_block: u64,
+    mut fetch_timestamp: F,
+) -> Result<Vec<(u64, u64)>>
+where
+    F: FnMut(u64) -> Fut,
+    Fut: Future<Output = Result<u64>>,
+{
+    let mut blocks = Vec::new();
+    for block_number in from_block..=to_block {
+        let block_timestamp = fetch_timestamp(block_number)
+            .await
+            .with_context(|| format!("timestamp unavailable for block {block_number}"))?;
+        blocks.push((block_number, block_timestamp));
+    }
+    Ok(blocks)
+}
 
 #[instrument(skip(event_type))]
 pub async fn stream_events(event_type: EventType) -> Result<()> {
@@ -41,6 +98,21 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
     let client = RpcClient::instance()?;
     let cache_manager = CacheManager::instance()?;
     let price_provider = provider::build_provider()?;
+    let (snapshot_tx, snapshot_rx) = watch::channel::<Option<Arc<PriceSnapshot>>>(None);
+    let sampler_quotes = quote_configs().clone();
+    let sampler_provider = Arc::clone(&price_provider);
+
+    tokio::spawn(run_sampler(
+        sampler_provider,
+        sampler_quotes,
+        snapshot_tx,
+        move || async move {
+            let latest_block = client.get_cached_latest_block();
+            let source_block = latest_block.saturating_sub(PRICE_HEAD_OFFSET);
+            let source_timestamp = get_block_timestamp(client, source_block).await?;
+            Ok((source_block, source_timestamp))
+        },
+    ));
 
     loop {
         let iter_start = Instant::now();
@@ -64,130 +136,57 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
             continue;
         }
 
-        let mut events: Vec<UpdatePrice> = Vec::new();
+        let Some(snapshot) = current_snapshot(&snapshot_rx) else {
+            warn!("[PRICE] waiting for initial snapshot");
+            tokio::time::sleep(POLL_INTERVAL).await;
+            continue;
+        };
 
-        // Group blocks by normalized timestamp while keeping original timestamp info
-        let mut timestamp_to_blocks: HashMap<u64, Vec<(u64, u64)>> = HashMap::new(); // normalized_ts -> Vec<(block_number, original_ts)>
-
-        for block_number in from_block..=to_block {
-            let block_timestamp = match get_block_timestamp(client, block_number).await {
-                Ok(ts) => ts,
-                Err(e) => {
-                    error!("Failed to get timestamp for block {}: {}", block_number, e);
-                    continue;
+        let blocks = match collect_block_timestamps(from_block, to_block, |block_number| {
+            get_block_timestamp(client, block_number)
+        })
+        .await
+        {
+            Ok(blocks) => blocks,
+            Err(_) => {
+                error!(
+                    "[PRICE] block timestamp lookup failed for range {}..={}; retrying without checkpoint advance",
+                    from_block, to_block
+                );
+                if let Some(remaining) = POLL_INTERVAL.checked_sub(iter_start.elapsed()) {
+                    tokio::time::sleep(remaining).await;
                 }
-            };
-
-            // Block-modulo-25 bucketing — every 25 blocks shares a single
-            // Pyth fetch. Block-modulo (vs the previous 10s
-            // timestamp-modulo) is fully deterministic regardless of the
-            // chain's block-time variance and matches websocket-server's
-            // BUCKET_BLOCK_INTERVAL exactly, so both services always query
-            // Pyth with the timestamp of the SAME bucket block. The price
-            // stored in observer's `price` table and the price cached in
-            // websocket-server's in-memory map never diverge for blocks
-            // that share a bucket.
-            const BUCKET_BLOCK_INTERVAL: u64 = 25;
-            let bucket_block = block_number - (block_number % BUCKET_BLOCK_INTERVAL);
-            timestamp_to_blocks
-                .entry(bucket_block)
-                .or_default()
-                .push((block_number, block_timestamp));
-        }
-
-        // Batch-fetch prices for ALL quote tokens at each timestamp.
-        // One Pyth call per (timestamp) regardless of quote count, so the
-        // request budget scales with chain block production, not the size
-        // of the quote set.
-        let mut fetch_attempted = 0usize;
-        let mut fetch_skipped_cached = 0usize;
-        let mut fetch_succeeded = 0usize;
-        let mut fetch_failed = 0usize;
-        for (bucket_block, block_data) in &timestamp_to_blocks {
-            // Skip the bucket only if every quote already has a cached
-            // price for the first block in the bucket. Any miss → batch fetch.
-            let first_block = block_data.first().map(|(block, _)| *block as i64);
-            let mut needs_fetch = first_block.is_none();
-            if let Some(block_num) = first_block {
-                for q in quote_configs().iter() {
-                    if cache_manager
-                        .get_price_for_quote(&q.address, block_num)
-                        .await
-                        .is_none()
-                    {
-                        needs_fetch = true;
-                        break;
-                    }
-                }
-            }
-            if !needs_fetch {
-                fetch_skipped_cached += 1;
                 continue;
             }
+        };
 
-            // Query Pyth with the bucket block's own timestamp so both
-            // services hit the same /v2/updates/price/{ts} regardless of
-            // which catch-up cycle is currently processing this bucket.
-            let bucket_timestamp = match get_block_timestamp(client, *bucket_block).await {
-                Ok(ts) => ts,
-                Err(e) => {
-                    error!(
-                        "Failed to get timestamp for bucket block {}: {}",
-                        bucket_block, e
-                    );
-                    fetch_failed += 1;
-                    continue;
-                }
-            };
-
-            let feed_ids: Vec<&str> = quote_configs()
-                .iter()
-                .map(|q| q.pyth_feed_id.as_str())
-                .collect();
-
-            fetch_attempted += 1;
-            match price_provider
-                .fetch_batch(&feed_ids, bucket_timestamp)
-                .await
-            {
-                Ok(prices) => {
-                    fetch_succeeded += 1;
-                    for q in quote_configs().iter() {
-                        let key = provider::normalize_feed_id(&q.pyth_feed_id);
-                        let Some(price) = prices.get(&key) else {
-                            warn!(
-                                "[PRICE] Batch response missing feed for quote {} (feed_id={}) at timestamp {}",
-                                q.address, q.pyth_feed_id, bucket_timestamp
-                            );
-                            continue;
-                        };
-                        for (block_number, original_timestamp) in block_data {
-                            events.push(UpdatePrice {
-                                quote_id: q.address.clone(),
-                                block_number: *block_number,
-                                price: price.clone(),
-                                block_timestamp: *original_timestamp,
-                            });
-                        }
-                    }
-                }
-                Err(e) => {
-                    fetch_failed += 1;
-                    error!(
-                        "[PRICE] Batch fetch failed at timestamp {}: {}",
-                        bucket_timestamp, e
-                    );
+        let mut exact_cache_hits = HashSet::new();
+        for &(block_number, _) in &blocks {
+            for quote in quote_configs() {
+                if cache_manager
+                    .get_price_for_quote(&quote.address, block_number as i64)
+                    .await
+                    .is_some()
+                {
+                    exact_cache_hits.insert((quote.address.clone(), block_number));
                 }
             }
         }
 
+        let events = build_events(
+            snapshot.as_ref(),
+            quote_configs(),
+            &blocks,
+            &exact_cache_hits,
+        );
+
         info!(
-            "[PRICE] cycle ts_buckets={} fetched={} skipped_cached={} ok={} fail={}",
-            timestamp_to_blocks.len(),
-            fetch_attempted,
-            fetch_skipped_cached,
-            fetch_succeeded,
-            fetch_failed
+            "[PRICE] cycle blocks={} rows={} exact_cache_hits={} snapshot_block={} snapshot_age_secs={}",
+            blocks.len(),
+            events.len(),
+            exact_cache_hits.len(),
+            snapshot.source_block,
+            snapshot.sampled_at.elapsed().as_secs()
         );
 
         // Get stats before sending events
@@ -218,5 +217,131 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
         if let Some(remaining) = POLL_INTERVAL.checked_sub(iter_start.elapsed()) {
             tokio::time::sleep(remaining).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashSet, sync::Arc};
+
+    use bigdecimal::BigDecimal;
+    use tokio::{sync::watch, time::Instant};
+
+    use super::{build_events, collect_block_timestamps, current_snapshot};
+    use crate::{config::QuoteConfig, event::common::price::sampler::PriceSnapshot};
+
+    fn quote(address: &str, pyth_feed_id: &str) -> QuoteConfig {
+        QuoteConfig {
+            address: address.to_string(),
+            pyth_feed_id: pyth_feed_id.to_string(),
+            decimals: BigDecimal::from(1),
+        }
+    }
+
+    fn snapshot<const N: usize>(prices: [(&str, i64); N]) -> PriceSnapshot {
+        PriceSnapshot {
+            prices_by_quote: prices
+                .into_iter()
+                .map(|(quote_id, price)| (quote_id.to_string(), BigDecimal::from(price)))
+                .collect(),
+            source_block: 95,
+            source_timestamp: 950,
+            sampled_at: Instant::now(),
+        }
+    }
+
+    #[test]
+    fn one_snapshot_is_copied_to_every_block_with_original_timestamps() {
+        let snapshot = snapshot([("0xaaa", 2_500)]);
+        let blocks = vec![(100, 1_000), (101, 1_001), (102, 1_002)];
+
+        let events = build_events(
+            &snapshot,
+            &[quote("0xaaa", "feed-a")],
+            &blocks,
+            &HashSet::new(),
+        );
+
+        assert_eq!(events.len(), 3);
+        assert!(
+            events
+                .iter()
+                .all(|event| event.price == BigDecimal::from(2_500))
+        );
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| (event.block_number, event.block_timestamp))
+                .collect::<Vec<_>>(),
+            blocks
+        );
+    }
+
+    #[test]
+    fn exact_cached_quote_block_rows_are_not_emitted_again() {
+        let snapshot = snapshot([("0xaaa", 2_500)]);
+        let hits = HashSet::from([("0xaaa".to_string(), 101)]);
+
+        let events = build_events(
+            &snapshot,
+            &[quote("0xaaa", "feed-a")],
+            &[(100, 1_000), (101, 1_001)],
+            &hits,
+        );
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].block_number, 100);
+    }
+
+    #[test]
+    fn expansion_order_is_block_then_configured_quote() {
+        let snapshot = snapshot([("0xbbb", 20), ("0xaaa", 10)]);
+        let blocks = [(100, 1_000), (101, 1_001)];
+
+        let events = build_events(
+            &snapshot,
+            &[quote("0xaaa", "feed-a"), quote("0xbbb", "feed-b")],
+            &blocks,
+            &HashSet::new(),
+        );
+
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| (event.block_number, event.quote_id.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (100, "0xaaa"),
+                (100, "0xbbb"),
+                (101, "0xaaa"),
+                (101, "0xbbb"),
+            ]
+        );
+    }
+
+    #[test]
+    fn current_snapshot_is_none_until_sampler_publishes() {
+        let (tx, rx) = watch::channel(None);
+
+        assert!(current_snapshot(&rx).is_none());
+
+        let published = Arc::new(snapshot([("0xaaa", 2_500)]));
+        tx.send_replace(Some(Arc::clone(&published)));
+
+        let current = current_snapshot(&rx).expect("snapshot is published");
+        assert!(Arc::ptr_eq(&current, &published));
+    }
+
+    #[tokio::test]
+    async fn timestamp_collection_fails_closed_on_any_missing_block() {
+        let result = collect_block_timestamps(100, 102, |block_number| async move {
+            if block_number == 101 {
+                anyhow::bail!("timestamp unavailable");
+            }
+            Ok(block_number + 900)
+        })
+        .await;
+
+        assert!(result.is_err());
     }
 }
