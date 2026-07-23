@@ -79,7 +79,11 @@ See [Dex](event/dex.md) for fields and processing detail.
 
 ### LpManager
 
-LpManager indexes `Allocate` and `Collect` events from `LP_MANAGER`. The stream persists the emitted quote and token amounts directly without additional contract reads. Existing split columns in the collection table receive zero values until the database schema is changed separately.
+LpManager indexes `Allocate` and `Collect` events from `LP_MANAGER`. `Allocate`
+persists its emitted quote and token amounts. `Collect` persists the emitted
+total quote amount, which already includes the swapped launch-token fee,
+without an additional contract read. Collection history stores only that total
+quote amount and canonical transaction/log coordinates.
 
 See [LpManager](event/lp-manager.md) for fields and processing detail.
 
