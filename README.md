@@ -9,7 +9,7 @@ The runtime starts exactly seven event handlers. Their checkpoint names are stab
 | Handler | Source | Checkpoint |
 | --- | --- | --- |
 | Curve | BondingCurve | `curve` |
-| Dex | GIWA canonical Uniswap V3 pool + GiwaRouter Buy/Sell(graduated) | `dex` |
+| Dex | GIWA canonical Uniswap V3 pool + YachaRouter RouterBuy/RouterSell(graduated) | `dex` |
 | LpManager | LPManager | `lp_manager` |
 | Vault | BurnVault, LPVault, CreatorFeeVault, GiftVault, and DividendVault | `vault` |
 | VaultRegistry | VaultRegistry | `vault_registry` |
@@ -35,7 +35,7 @@ The active GIWA handlers and fee behavior use these deployment variables:
 ```dotenv
 BONDING_CURVE=0x...
 DEX_FACTORY=0x...
-DEX_ROUTER=0x...
+YACHA_ROUTER=0x...
 LP_MANAGER=0x...
 WETH=0x4200000000000000000000000000000000000006
 # Optional vault and registry contracts

@@ -29,8 +29,8 @@ use crate::{
 sol! {
     #[allow(missing_docs)]
     #[sol(rpc)]
-    ILpManager,
-    "abi/ILpManager.json"
+    LPManager,
+    "abi/LPManager.json"
 }
 
 #[instrument(skip(event_type))]
@@ -64,9 +64,8 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
             .to_block(BlockNumberOrTag::Number(to_block))
             .address(LP_MANAGER_ADDRESS.parse::<Address>().unwrap())
             .events(vec![
-                ILpManager::LpManagerAllocate::SIGNATURE,
-                ILpManager::LpManagerCollect::SIGNATURE,
-                // d                ILpManager::SetActionId::SIGNATURE,
+                LPManager::Allocate::SIGNATURE,
+                LPManager::Collect::SIGNATURE,
             ]);
 
         let logs = match client.get_logs(filter).await {
@@ -176,20 +175,20 @@ async fn parse_log(log: Log, client: &RpcClient) -> Result<Vec<LpManagerEvent>> 
     let log_index = log.log_index.unwrap_or(u64::MAX);
     let transaction_index = log.transaction_index.unwrap_or(u64::MAX);
     match log.topic0() {
-        Some(&ILpManager::LpManagerAllocate::SIGNATURE_HASH) => {
-            let ILpManager::LpManagerAllocate {
+        Some(&LPManager::Allocate::SIGNATURE_HASH) => {
+            let LPManager::Allocate {
                 token,
                 pool,
-                monAmount,
+                quoteAmount,
                 tokenAmount,
-                lastCollectTime,
+                timestamp,
             } = log.log_decode()?.inner.data;
 
             let token = token.to_string();
             let pool = pool.to_string();
-            let quote_amount = Arc::new(to_big_decimal(monAmount));
+            let quote_amount = Arc::new(to_big_decimal(quoteAmount));
             let token_amount = Arc::new(to_big_decimal(tokenAmount));
-            let last_collect_time: u64 = lastCollectTime.to::<u64>();
+            let last_collect_time: u64 = timestamp.to::<u64>();
             let allocate = Allocate {
                 token: Arc::new(token),
                 pool: Arc::new(pool),
@@ -205,55 +204,25 @@ async fn parse_log(log: Log, client: &RpcClient) -> Result<Vec<LpManagerEvent>> 
 
             Ok(vec![LpManagerEvent::Allocate(allocate)])
         }
-        Some(&ILpManager::LpManagerCollect::SIGNATURE_HASH) => {
-            let ILpManager::LpManagerCollect {
+        Some(&LPManager::Collect::SIGNATURE_HASH) => {
+            let LPManager::Collect {
                 token,
                 pool,
-                monAmount,
+                quoteAmount,
                 tokenAmount,
-                lastCollectTime,
+                timestamp,
             } = log.log_decode()?.inner.data;
 
             let token = token.to_string();
-
             let pool = pool.to_string();
-            let quote_amount_val = to_big_decimal(monAmount);
+            let quote_amount = Arc::new(to_big_decimal(quoteAmount));
             let token_amount = Arc::new(to_big_decimal(tokenAmount));
-            let last_collect_time: u64 = lastCollectTime.to::<u64>();
-
-            let lp_manager = ILpManager::new(
-                LP_MANAGER_ADDRESS.parse().unwrap(),
-                client.get_current_provider().await?,
-            );
-
-            let ILpManager::configReturn {
-                creatorTreasuryFeeRate,
-                foundationTreasuryFeeRate,
-                communityTreasuryFeeRate,
-            } = lp_manager.config().call().await?;
-
-            // fee rate는 1_000_000 기준 (예: 300_000 = 30%)
-            let c_amount = Arc::new(
-                (&quote_amount_val * creatorTreasuryFeeRate.to::<u64>() / 1_000_000u64)
-                    .with_scale(0),
-            ); //creator treasury
-            let ft_amount = Arc::new(
-                (&quote_amount_val * foundationTreasuryFeeRate.to::<u64>() / 1_000_000u64)
-                    .with_scale(0),
-            ); //foundation treasury
-            let ct_amount = Arc::new(
-                (&quote_amount_val * communityTreasuryFeeRate.to::<u64>() / 1_000_000u64)
-                    .with_scale(0),
-            ); //community treasury
-            let quote_amount = Arc::new(quote_amount_val);
+            let last_collect_time: u64 = timestamp.to::<u64>();
             let collect = Collect {
                 token: Arc::new(token),
                 pool: Arc::new(pool),
                 quote_amount,
                 token_amount,
-                c_amount,
-                ft_amount,
-                ct_amount,
                 last_collect_time,
                 transaction_hash: Arc::new(transaction_hash),
                 block_number,
@@ -264,5 +233,47 @@ async fn parse_log(log: Log, client: &RpcClient) -> Result<Vec<LpManagerEvent>> 
             Ok(vec![LpManagerEvent::Collect(collect)])
         }
         _ => Err(anyhow::anyhow!("Unknown event type")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use alloy::{
+        primitives::{Address, U256},
+        sol_types::SolEvent,
+    };
+
+    use super::LPManager;
+
+    #[test]
+    fn lp_manager_event_signatures_and_fields_round_trip() {
+        let token = Address::repeat_byte(0x11);
+        let pool = Address::repeat_byte(0x22);
+
+        let allocate = LPManager::Allocate {
+            token,
+            pool,
+            quoteAmount: U256::from(100u64),
+            tokenAmount: U256::from(200u64),
+            timestamp: U256::from(300u64),
+        };
+        let decoded = LPManager::Allocate::decode_log_data(&allocate.encode_log_data())
+            .expect("Allocate decodes");
+        assert_eq!(decoded.quoteAmount, U256::from(100u64));
+        assert_eq!(decoded.tokenAmount, U256::from(200u64));
+        assert_eq!(decoded.timestamp, U256::from(300u64));
+
+        let collect = LPManager::Collect {
+            token,
+            pool,
+            quoteAmount: U256::from(400u64),
+            tokenAmount: U256::from(500u64),
+            timestamp: U256::from(600u64),
+        };
+        let decoded = LPManager::Collect::decode_log_data(&collect.encode_log_data())
+            .expect("Collect decodes");
+        assert_eq!(decoded.quoteAmount, U256::from(400u64));
+        assert_eq!(decoded.tokenAmount, U256::from(500u64));
+        assert_eq!(decoded.timestamp, U256::from(600u64));
     }
 }
