@@ -19,8 +19,8 @@ use tracing::{error, info, instrument, warn};
 use crate::{
     client::RpcClient,
     config::{
-        BLOCK_BATCH_SIZE, BONDING_CURVE_ADDRESS, DEX_FACTORY_ADDRESS, DEX_ROUTER_ADDRESS,
-        LP_MANAGER_ADDRESS, WNATIVE_ADDRESS, get_quote_decimals, quote_configs,
+        BLOCK_BATCH_SIZE, BONDING_CURVE_ADDRESS, DEX_FACTORY_ADDRESS, LP_MANAGER_ADDRESS,
+        WNATIVE_ADDRESS, YACHA_ROUTER_ADDRESS, get_quote_decimals, quote_configs,
     },
     db::cache::CacheManager,
     event::{
@@ -61,7 +61,7 @@ static SYSTEM_ADDRESSES: LazyLock<HashSet<Address>> = LazyLock::new(|| {
     for address in [
         &*BONDING_CURVE_ADDRESS,
         &*DEX_FACTORY_ADDRESS,
-        &*DEX_ROUTER_ADDRESS,
+        &*YACHA_ROUTER_ADDRESS,
         &*LP_MANAGER_ADDRESS,
     ] {
         set.insert(address.parse().expect("active GIWA address must be valid"));

@@ -970,15 +970,11 @@ pub async fn call_handle_lp_allocate(
 }
 
 /// Call `HANDLE_LP_COLLECT_SQL` with scalar params.
-#[allow(clippy::too_many_arguments)]
 pub async fn call_handle_lp_collect(
     pool: &PgPool,
     token_id: &str,
     quote_amount: &str,
     token_amount: &str,
-    c_amount: &str,
-    ft_amount: &str,
-    ct_amount: &str,
     transaction_hash: &str,
     tx_index: i32,
     log_index: i32,
@@ -990,9 +986,6 @@ pub async fn call_handle_lp_collect(
         .bind(token_id)
         .bind(parse(quote_amount))
         .bind(parse(token_amount))
-        .bind(parse(c_amount))
-        .bind(parse(ft_amount))
-        .bind(parse(ct_amount))
         .bind(transaction_hash)
         .bind(tx_index)
         .bind(log_index)

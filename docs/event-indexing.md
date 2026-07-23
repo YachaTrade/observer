@@ -7,7 +7,7 @@ GIWA Observer runs seven event handlers. Events within a batch are ordered by `(
 | Handler | Source | Checkpoint |
 | --- | --- | --- |
 | Curve | BondingCurve | `curve` |
-| Dex | GIWA canonical Uniswap V3 pool + GiwaRouter Buy/Sell(graduated) | `dex` |
+| Dex | GIWA canonical Uniswap V3 pool + YachaRouter RouterBuy/RouterSell(graduated) | `dex` |
 | LpManager | LPManager | `lp_manager` |
 | Vault | BurnVault, LPVault, CreatorFeeVault, GiftVault, and DividendVault | `vault` |
 | VaultRegistry | VaultRegistry | `vault_registry` |
@@ -39,7 +39,7 @@ The active handler addresses and fee values use these deployment variables:
 ```dotenv
 BONDING_CURVE=0x...
 DEX_FACTORY=0x...
-DEX_ROUTER=0x...
+YACHA_ROUTER=0x...
 LP_MANAGER=0x...
 WETH=0x4200000000000000000000000000000000000006
 # Optional vault and registry contracts
@@ -73,13 +73,13 @@ See [Curve](event/curve.md) for fields and processing detail.
 
 ### Dex
 
-Dex indexes Swap, Mint, and Burn events from GIWA canonical Uniswap V3 pools plus GiwaRouter Buy/Sell events where `graduated=true`. Router events with `graduated=false` remain the Curve handler's responsibility and are skipped to prevent duplicate trades. Only known token pools are processed. Swap parsing synthesizes reserve/price state used by receive-side swap, market, chart, point, and fee-history writes.
+Dex indexes Swap, Mint, and Burn events from GIWA canonical Uniswap V3 pools plus YachaRouter RouterBuy/RouterSell events where `graduated=true`. Router events with `graduated=false` remain the Curve handler's responsibility and are skipped to prevent duplicate trades. Only known token pools are processed. Swap parsing synthesizes reserve/price state used by receive-side swap, market, chart, point, and fee-history writes.
 
 See [Dex](event/dex.md) for fields and processing detail.
 
 ### LpManager
 
-LpManager indexes allocation and collection events from `LP_MANAGER`. Collection processing reads treasury fee rates from the contract and persists the calculated creator, foundation, and community portions.
+LpManager indexes `Allocate` and `Collect` events from `LP_MANAGER`. The stream persists the emitted quote and token amounts directly without additional contract reads. Existing split columns in the collection table receive zero values until the database schema is changed separately.
 
 See [LpManager](event/lp-manager.md) for fields and processing detail.
 

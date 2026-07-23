@@ -65,7 +65,8 @@ fn configuration_uses_only_generic_giwa_names() {
     for required in [
         "\"BONDING_CURVE\"",
         "\"DEX_FACTORY\"",
-        "\"DEX_ROUTER\"",
+        "\"YACHA_ROUTER\"",
+        "YACHA_ROUTER_ADDRESS",
         "\"LP_MANAGER\"",
         "\"BURN_VAULT\"",
         "\"LP_VAULT\"",
@@ -82,6 +83,8 @@ fn configuration_uses_only_generic_giwa_names() {
     }
 
     for forbidden in [
+        "\"DEX_ROUTER\"",
+        "DEX_ROUTER_ADDRESS",
         "\"CREATE_FEE_AMOUNT\"",
         "V1_BONDING_CURVE",
         "V1_DEX_FACTORY",
@@ -103,6 +106,50 @@ fn configuration_uses_only_generic_giwa_names() {
         "V2_NAD_FUN_FACTORY",
     ] {
         assert!(!config.contains(forbidden), "stale {forbidden}");
+    }
+}
+
+#[test]
+fn active_streams_use_deployed_yacha_router_and_lp_manager_events() {
+    let dex = include_str!("../src/event/dex/stream.rs");
+    let lp_manager = include_str!("../src/event/lp_manager/stream.rs");
+
+    for required in [
+        "abi/YachaRouter.json",
+        "YachaRouter::RouterBuy",
+        "YachaRouter::RouterSell",
+    ] {
+        assert!(
+            dex.contains(required),
+            "missing deployed router ABI: {required}"
+        );
+    }
+
+    for forbidden in ["abi/GiwaRouter.json", "GiwaRouter::Buy", "GiwaRouter::Sell"] {
+        assert!(!dex.contains(forbidden), "stale router ABI: {forbidden}");
+    }
+
+    for required in [
+        "abi/LPManager.json",
+        "LPManager::Allocate",
+        "LPManager::Collect",
+    ] {
+        assert!(
+            lp_manager.contains(required),
+            "missing deployed LPManager ABI: {required}"
+        );
+    }
+
+    for forbidden in [
+        "abi/ILpManager.json",
+        "LpManagerAllocate",
+        "LpManagerCollect",
+        ".config().call()",
+    ] {
+        assert!(
+            !lp_manager.contains(forbidden),
+            "stale LPManager integration: {forbidden}"
+        );
     }
 }
 

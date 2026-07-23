@@ -40,10 +40,10 @@ lazy_static! {
         normalize_required_env_address("BONDING_CURVE");
     pub static ref DEX_FACTORY_ADDRESS: String =
         normalize_required_env_address("DEX_FACTORY");
-    // GiwaRouter address. On GIWA every trade routes through GiwaRouter,
-    // which emits Buy/Sell(graduated) — the dex handler filters graduated=true.
-    pub static ref DEX_ROUTER_ADDRESS: String =
-        normalize_required_env_address("DEX_ROUTER");
+    // YachaRouter address. On GIWA every trade routes through YachaRouter,
+    // which emits RouterBuy/RouterSell(graduated) — the dex handler filters graduated=true.
+    pub static ref YACHA_ROUTER_ADDRESS: String =
+        normalize_required_env_address("YACHA_ROUTER");
     pub static ref LP_MANAGER_ADDRESS: String =
         normalize_required_env_address("LP_MANAGER");
     pub static ref BURN_VAULT_ADDRESS: String =
@@ -329,7 +329,7 @@ pub fn force_init_address_configs() {
     let _ = &*WNATIVE_ADDRESS;
     let _ = &*BONDING_CURVE_ADDRESS;
     let _ = &*DEX_FACTORY_ADDRESS;
-    let _ = &*DEX_ROUTER_ADDRESS;
+    let _ = &*YACHA_ROUTER_ADDRESS;
     let _ = &*LP_MANAGER_ADDRESS;
     let _ = &*BURN_VAULT_ADDRESS;
     let _ = &*LP_VAULT_ADDRESS;

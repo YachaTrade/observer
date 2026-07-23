@@ -20,10 +20,7 @@ pub struct Collect {
     pub token: Arc<String>,
     pub pool: Arc<String>,
     pub quote_amount: Arc<BigDecimal>,
-    pub token_amount: Arc<BigDecimal>, //token treasury
-    pub c_amount: Arc<BigDecimal>,     //creator treasury
-    pub ft_amount: Arc<BigDecimal>,    //foundation treasury
-    pub ct_amount: Arc<BigDecimal>,    //community treasury
+    pub token_amount: Arc<BigDecimal>,
     pub last_collect_time: u64,
     pub transaction_hash: Arc<String>,
     pub block_number: u64,
