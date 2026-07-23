@@ -6,11 +6,15 @@ use std::{future::Future, pin::Pin};
 
 use anyhow::Result;
 
-use crate::{sync::EventType, types::price::UpdatePrice};
+use crate::{
+    event::core::{EventBatch, EventChannel},
+    sync::EventType,
+    types::price::UpdatePrice,
+};
 
 use crate::event::handler::{EventHandler, run_event_handler};
-pub type PriceEventChannel = crate::event::core::AcknowledgedEventChannel<UpdatePrice>;
-pub type PriceEventBatch = crate::event::core::AcknowledgedEventBatch<UpdatePrice>;
+pub type PriceEventBatch = EventBatch<UpdatePrice>;
+pub type PriceEventChannel = EventChannel<UpdatePrice>;
 
 pub struct PriceEventHandler;
 
@@ -30,22 +34,32 @@ pub async fn main(event_type: EventType) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{event::core::AcknowledgedEventChannel, types::price::UpdatePrice};
+    use std::time::Duration;
 
     #[tokio::test]
-    async fn acknowledged_price_channel_propagates_receive_failure() {
-        let (channel, mut receiver) = AcknowledgedEventChannel::new("price_ack_failure");
-        let receive = tokio::spawn(async move {
-            let batch: crate::event::core::AcknowledgedEventBatch<UpdatePrice> =
-                receiver.recv().await.unwrap();
-            batch
-                .ack
-                .send(Err("price persistence failed".to_string()))
-                .unwrap();
-        });
+    async fn price_send_does_not_wait_for_receiver_acknowledgement() {
+        let (channel, mut receiver) = super::PriceEventChannel::new("price_no_ack_gate");
 
-        let error = channel.send(vec![], 10, 11).await.unwrap_err();
-        assert!(error.to_string().contains("price persistence failed"));
-        receive.await.unwrap();
+        tokio::time::timeout(Duration::from_millis(50), channel.send(vec![], 10, 11))
+            .await
+            .expect("Price send must not wait for receiver persistence")
+            .expect("Price batch must be enqueued");
+
+        let batch = receiver.recv().await.expect("Price batch must be received");
+        assert_eq!(batch.to_block, 10);
+        assert_eq!(batch.latest_block, 11);
+    }
+
+    #[tokio::test]
+    async fn price_send_reports_a_closed_receiver_for_supervised_restart() {
+        let (channel, receiver) = super::PriceEventChannel::new("price_closed_receiver");
+        drop(receiver);
+
+        let error = channel
+            .send(vec![], 10, 11)
+            .await
+            .expect_err("closed receiver must be reported to the stream supervisor");
+
+        assert!(error.to_string().contains("channel closed"));
     }
 }
