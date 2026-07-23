@@ -6,6 +6,7 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use crate::config::BLOCK_OFFSET;
+use crate::config::quote_configs;
 use crate::db::postgres::PostgresDatabase;
 
 use super::{BlockRange, EventType};
@@ -13,6 +14,59 @@ use super::{BlockRange, EventType};
 // 전역 인스턴스
 lazy_static::lazy_static! {
     pub static ref STREAM_MANAGER: StreamManager = StreamManager::new();
+}
+
+fn normalize_quote_id(quote_id: &str) -> String {
+    quote_id
+        .trim_start_matches("0x")
+        .trim_start_matches("0X")
+        .to_ascii_lowercase()
+}
+
+pub(crate) fn select_price_resume_block(
+    start_block: u64,
+    configured_quotes: &[String],
+    rows: &[(String, i64)],
+) -> Option<u64> {
+    let mut maxima = HashMap::new();
+    for (quote_id, max_block) in rows {
+        if *max_block >= start_block as i64 {
+            maxima.insert(normalize_quote_id(quote_id), *max_block as u64);
+        }
+    }
+
+    let mut quote_maxima = Vec::with_capacity(configured_quotes.len());
+    for quote in configured_quotes {
+        let block = maxima.get(&normalize_quote_id(quote))?;
+        quote_maxima.push(*block);
+    }
+
+    quote_maxima
+        .into_iter()
+        .min()
+        .map(|block| block.saturating_add(1))
+}
+
+fn build_initial_stream_ranges(
+    default_range: BlockRange,
+    price_resume_block: Option<u64>,
+) -> HashMap<EventType, BlockRange> {
+    let mut ranges = HashMap::new();
+    for event_type in EventType::all() {
+        ranges.insert(event_type, default_range.clone());
+    }
+
+    if let Some(resume_block) = price_resume_block {
+        ranges.insert(
+            EventType::Price,
+            BlockRange {
+                from_block: default_range.from_block,
+                to_block: resume_block,
+            },
+        );
+    }
+
+    ranges
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -184,11 +238,51 @@ impl StreamManager {
             to_block: start_block - 1,
         };
 
-        for event_type in EventType::all() {
-            self.stream_event_block
-                .write()
-                .await
-                .insert(event_type, block_range.clone());
+        let price_resume_block = match PostgresDatabase::instance() {
+            Ok(db) => match sqlx::query(
+                "SELECT quote_id, MAX(block_number) AS max_block FROM price GROUP BY quote_id",
+            )
+            .fetch_all(&db.pool)
+            .await
+            {
+                Ok(rows) => {
+                    let maxima: Vec<(String, i64)> = rows
+                        .into_iter()
+                        .filter_map(|row| {
+                            Some((
+                                row.try_get("quote_id").ok()?,
+                                row.try_get("max_block").ok()?,
+                            ))
+                        })
+                        .collect();
+                    let configured: Vec<String> = quote_configs()
+                        .iter()
+                        .map(|quote| quote.address.clone())
+                        .collect();
+                    select_price_resume_block(start_block, &configured, &maxima)
+                }
+                Err(error) => {
+                    warn!("[STREAM] Failed to load Price watermark: {}", error);
+                    None
+                }
+            },
+            Err(error) => {
+                warn!(
+                    "[STREAM] Failed to access database for Price watermark: {}",
+                    error
+                );
+                None
+            }
+        };
+
+        let initial_ranges = build_initial_stream_ranges(block_range, price_resume_block);
+        *self.stream_event_block.write().await = initial_ranges;
+
+        if let Some(resume_block) = price_resume_block {
+            info!(
+                "[STREAM] Resuming Price from complete quote watermark: {}",
+                resume_block
+            );
         }
 
         info!("[STREAM] Initialized block range - start: {}", start_block);
@@ -338,5 +432,86 @@ mod tests {
         assert_eq!(policy, StreamPolicy::Independent);
         assert!(policy.is_ready(100, 0));
         assert_eq!(policy.to_block(100, 20, 110, 0, 7), 103);
+    }
+
+    #[test]
+    fn selects_the_only_quote_watermark() {
+        let rows = vec![("quote-a".to_string(), 123_i64)];
+        let configured = vec!["quote-a".to_string()];
+        assert_eq!(
+            super::select_price_resume_block(100, &configured, &rows),
+            Some(124)
+        );
+    }
+
+    #[test]
+    fn selects_the_minimum_complete_watermark_across_quotes() {
+        let rows = vec![
+            ("quote-a".to_string(), 220_i64),
+            ("quote-b".to_string(), 150_i64),
+            ("quote-c".to_string(), 190_i64),
+        ];
+        let configured = vec![
+            "quote-a".to_string(),
+            "quote-b".to_string(),
+            "quote-c".to_string(),
+        ];
+        assert_eq!(
+            super::select_price_resume_block(100, &configured, &rows),
+            Some(151)
+        );
+    }
+
+    #[test]
+    fn matches_quote_ids_case_insensitively() {
+        let rows = vec![
+            ("0xabc".to_string(), 200_i64),
+            ("0XDEF".to_string(), 240_i64),
+        ];
+        let configured = vec!["0xABC".to_string(), "0xdef".to_string()];
+        assert_eq!(
+            super::select_price_resume_block(100, &configured, &rows),
+            Some(201)
+        );
+    }
+
+    #[test]
+    fn falls_back_when_a_configured_quote_is_missing() {
+        let rows = vec![("quote-a".to_string(), 123_i64)];
+        let configured = vec!["quote-a".to_string(), "quote-b".to_string()];
+        assert_eq!(
+            super::select_price_resume_block(100, &configured, &rows),
+            None
+        );
+    }
+
+    #[test]
+    fn falls_back_when_the_only_complete_maximum_is_before_start_block() {
+        let rows = vec![("quote-a".to_string(), 80_i64)];
+        let configured = vec!["quote-a".to_string()];
+        assert_eq!(
+            super::select_price_resume_block(100, &configured, &rows),
+            None
+        );
+    }
+
+    #[test]
+    fn initial_ranges_apply_the_default_to_every_stream_and_override_only_price() {
+        let ranges = super::build_initial_stream_ranges(
+            crate::sync::BlockRange {
+                from_block: 900,
+                to_block: 999,
+            },
+            Some(1_234),
+        );
+
+        for event_type in crate::sync::EventType::all() {
+            let range = ranges.get(&event_type).unwrap();
+            if event_type == crate::sync::EventType::Price {
+                assert_eq!((range.from_block, range.to_block), (900, 1_234));
+            } else {
+                assert_eq!((range.from_block, range.to_block), (900, 999));
+            }
+        }
     }
 }
