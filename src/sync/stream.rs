@@ -64,7 +64,7 @@ impl StreamPolicy {
                 .min(latest_block.saturating_sub(1)),
             StreamPolicy::Price => {
                 const PRICE_CYCLE_BLOCKS: u64 = 1_000;
-                (from_block + PRICE_CYCLE_BLOCKS).min(latest_block.saturating_sub(5))
+                (from_block + PRICE_CYCLE_BLOCKS - 1).min(latest_block.saturating_sub(5))
             }
             StreamPolicy::Independent => {
                 (from_block + block_batch_size).min(latest_block.saturating_sub(block_offset))
@@ -317,11 +317,15 @@ mod tests {
     }
 
     #[test]
-    fn price_range_uses_the_one_thousand_block_cycle_cap() {
+    fn price_range_contains_exactly_one_thousand_blocks() {
         let policy = stream_policy(EventType::Price);
 
+        let from_block = 100;
+        let to_block = policy.to_block(from_block, 20, 5_000, 0, 0);
+
         assert_eq!(policy, StreamPolicy::Price);
-        assert_eq!(policy.to_block(100, 20, 5_000, 0, 0), 1_100);
+        assert_eq!(to_block, 1_099);
+        assert_eq!(to_block - from_block + 1, 1_000);
     }
 
     #[test]
