@@ -241,6 +241,7 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
         let mut fetch_attempted = 0usize;
         let mut fetch_skipped_cached = 0usize;
         let mut fetch_succeeded = 0usize;
+        let mut fetch_failed = 0usize;
         let mut bucket_blocks: Vec<u64> = timestamp_to_blocks.keys().copied().collect();
         bucket_blocks.sort_unstable();
         for bucket_block in bucket_blocks {
@@ -283,8 +284,8 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
                             "[PRICE] Failed to load aligned bucket timestamp for block {}: {}",
                             bucket_block, error
                         );
-                        wait_for_next_cycle(iter_start).await;
-                        continue 'stream;
+                        fetch_failed += 1;
+                        continue;
                     }
                 },
             };
@@ -304,12 +305,11 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
                     for q in quote_configs().iter() {
                         let key = provider::normalize_feed_id(&q.pyth_feed_id);
                         let Some(price) = prices.get(&key) else {
-                            error!(
+                            warn!(
                                 "[PRICE] Batch response missing feed for quote {} (feed_id={}) at timestamp {}",
                                 q.address, q.pyth_feed_id, bucket_timestamp
                             );
-                            wait_for_next_cycle(iter_start).await;
-                            continue 'stream;
+                            continue;
                         };
                         for (block_number, original_timestamp) in block_data {
                             events.push(UpdatePrice {
@@ -322,22 +322,22 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
                     }
                 }
                 Err(e) => {
+                    fetch_failed += 1;
                     error!(
                         "[PRICE] Batch fetch failed at timestamp {}: {}",
                         bucket_timestamp, e
                     );
-                    wait_for_next_cycle(iter_start).await;
-                    continue 'stream;
                 }
             }
         }
 
         info!(
-            "[PRICE] cycle ts_buckets={} fetched={} skipped_cached={} ok={}",
+            "[PRICE] cycle ts_buckets={} fetched={} skipped_cached={} ok={} fail={}",
             timestamp_to_blocks.len(),
             fetch_attempted,
             fetch_skipped_cached,
-            fetch_succeeded
+            fetch_succeeded,
+            fetch_failed
         );
 
         // Get stats before sending events
@@ -345,10 +345,7 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
         total_events += events_count;
         let elapsed_ms = time.elapsed().as_millis();
 
-        if let Err(e) = channel.send(events, to_block, latest_block).await {
-            error!("[PRICE] Failed to send events: {}", e);
-            return Err(e);
-        }
+        channel.send(events, to_block, latest_block).await?;
 
         let logging_format = format!(
             "📊 {:?} STREAM: Blocks: from={} to={} | Events: {} | Total Events: {} | Process time: {}ms",
