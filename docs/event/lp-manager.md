@@ -23,14 +23,17 @@ Receive processing writes the allocation history through the LP controller.
 
 ## Collect
 
-Collect reports the quote and token fees collected from the pool.
+Collect reports the total quote amount distributed after collecting the pool's
+quote fee and swapping its collected launch-token fee into quote.
 
 | Field | Meaning |
 | --- | --- |
 | `token` | token address |
 | `pool` | pool address |
-| `quoteAmount` | collected quote-token amount |
-| `tokenAmount` | collected launch-token amount |
+| `quoteAmount` | total distributed quote amount, including swapped launch-token fees |
 | `timestamp` | collection timestamp |
 
 Allocation and collection batches are submitted concurrently for each token.
+Collection history stores only `quoteAmount` plus canonical transaction and log
+coordinates; the event does not expose a separate launch-token amount or
+treasury split amounts.
