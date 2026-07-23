@@ -712,22 +712,17 @@ async fn lp_allocate_duplicate_no_op() -> Result<()> {
 async fn lp_collect_happy_path() -> Result<()> {
     let db = setup_test_db().await?;
 
-    call_handle_lp_collect(
-        &db.pool,
-        TOKEN,
-        "500",
-        "250",
-        "100",
-        "50",
-        "25",
-        "0xtx1",
-        0,
-        0,
-        1_700_000_000,
-    )
-    .await?;
+    call_handle_lp_collect(&db.pool, TOKEN, "500", "250", "0xtx1", 0, 0, 1_700_000_000).await?;
 
     assert_eq!(count_lp_collect(&db.pool, TOKEN).await?, 1);
+    let split_columns: (String, String, String) = sqlx::query_as(
+        "SELECT c_amount::text, ft_amount::text, ct_amount::text \
+         FROM lp_collect_history WHERE token_id = $1",
+    )
+    .bind(TOKEN)
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(split_columns, ("0".into(), "0".into(), "0".into()));
     Ok(())
 }
 
@@ -736,34 +731,8 @@ async fn lp_collect_happy_path() -> Result<()> {
 async fn lp_collect_duplicate_no_op() -> Result<()> {
     let db = setup_test_db().await?;
 
-    call_handle_lp_collect(
-        &db.pool,
-        TOKEN,
-        "500",
-        "250",
-        "100",
-        "50",
-        "25",
-        "0xtx1",
-        0,
-        0,
-        1_700_000_000,
-    )
-    .await?;
-    call_handle_lp_collect(
-        &db.pool,
-        TOKEN,
-        "999",
-        "999",
-        "999",
-        "999",
-        "999",
-        "0xtx1",
-        0,
-        0,
-        1_700_000_001,
-    )
-    .await?;
+    call_handle_lp_collect(&db.pool, TOKEN, "500", "250", "0xtx1", 0, 0, 1_700_000_000).await?;
+    call_handle_lp_collect(&db.pool, TOKEN, "999", "999", "0xtx1", 0, 0, 1_700_000_001).await?;
 
     assert_eq!(count_lp_collect(&db.pool, TOKEN).await?, 1);
     Ok(())

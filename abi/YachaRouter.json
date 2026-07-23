@@ -54,7 +54,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.BuyParams",
+        "internalType": "struct IYachaRouter.BuyParams",
         "components": [
           {
             "name": "amountIn",
@@ -100,7 +100,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.BuyWithNativeParams",
+        "internalType": "struct IYachaRouter.BuyWithNativeParams",
         "components": [
           {
             "name": "amountOutMin",
@@ -141,7 +141,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.BuyWithPermitParams",
+        "internalType": "struct IYachaRouter.BuyWithPermitParams",
         "components": [
           {
             "name": "amountIn",
@@ -207,7 +207,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.CreateParams",
+        "internalType": "struct IYachaRouter.CreateParams",
         "components": [
           {
             "name": "name",
@@ -230,21 +230,6 @@
             "internalType": "address"
           },
           {
-            "name": "salt",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "buyQuoteAmount",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "deadline",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
             "name": "vaults",
             "type": "tuple[]",
             "internalType": "struct IBondingCurve.VaultAllocation[]",
@@ -265,6 +250,26 @@
                 "internalType": "bytes"
               }
             ]
+          },
+          {
+            "name": "salt",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "dexType",
+            "type": "uint8",
+            "internalType": "enum ITokenRegistry.DexType"
+          },
+          {
+            "name": "buyQuoteAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       }
@@ -290,7 +295,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.CreateParams",
+        "internalType": "struct IYachaRouter.CreateParams",
         "components": [
           {
             "name": "name",
@@ -313,21 +318,6 @@
             "internalType": "address"
           },
           {
-            "name": "salt",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "buyQuoteAmount",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "deadline",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
             "name": "vaults",
             "type": "tuple[]",
             "internalType": "struct IBondingCurve.VaultAllocation[]",
@@ -348,6 +338,26 @@
                 "internalType": "bytes"
               }
             ]
+          },
+          {
+            "name": "salt",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "dexType",
+            "type": "uint8",
+            "internalType": "enum ITokenRegistry.DexType"
+          },
+          {
+            "name": "buyQuoteAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       }
@@ -368,25 +378,12 @@
   },
   {
     "type": "function",
-    "name": "dexRouterFeeRate",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "exactOutBuy",
     "inputs": [
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.ExactOutBuyParams",
+        "internalType": "struct IYachaRouter.ExactOutBuyParams",
         "components": [
           {
             "name": "amountInMax",
@@ -432,7 +429,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.ExactOutBuyWithNativeParams",
+        "internalType": "struct IYachaRouter.ExactOutBuyWithNativeParams",
         "components": [
           {
             "name": "amountOut",
@@ -473,7 +470,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.ExactOutSellParams",
+        "internalType": "struct IYachaRouter.ExactOutSellParams",
         "components": [
           {
             "name": "amountInMax",
@@ -505,7 +502,7 @@
     ],
     "outputs": [
       {
-        "name": "amountOut",
+        "name": "tokenIn",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -519,7 +516,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.ExactOutSellToNativeParams",
+        "internalType": "struct IYachaRouter.ExactOutSellToNativeParams",
         "components": [
           {
             "name": "amountInMax",
@@ -551,7 +548,7 @@
     ],
     "outputs": [
       {
-        "name": "amountOut",
+        "name": "tokenIn",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -585,7 +582,7 @@
         "internalType": "uint256"
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -614,7 +611,7 @@
         "internalType": "uint256"
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -676,37 +673,61 @@
   },
   {
     "type": "function",
-    "name": "getSwapRoute",
+    "name": "getDexAmountIn",
     "inputs": [
       {
         "name": "token",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "amountOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "isBuy",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "outputs": [
       {
-        "name": "graduated",
-        "type": "bool",
-        "internalType": "bool"
-      },
-      {
-        "name": "pool",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "quoteToken",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "feeTier",
-        "type": "uint24",
-        "internalType": "uint24"
+        "name": "amountIn",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getDexAmountOut",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amountIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "isBuy",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amountOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -733,9 +754,14 @@
         "internalType": "address"
       },
       {
-        "name": "dexRouterFeeRate_",
-        "type": "uint16",
-        "internalType": "uint16"
+        "name": "v3SwapAdapter_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "quoterV2_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [],
@@ -788,12 +814,25 @@
   },
   {
     "type": "function",
+    "name": "quoterV2",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "sell",
     "inputs": [
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.SellParams",
+        "internalType": "struct IYachaRouter.SellParams",
         "components": [
           {
             "name": "amountIn",
@@ -839,7 +878,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.SellToNativeParams",
+        "internalType": "struct IYachaRouter.SellToNativeParams",
         "components": [
           {
             "name": "amountIn",
@@ -885,7 +924,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.SellToNativeWithPermitParams",
+        "internalType": "struct IYachaRouter.SellToNativeWithPermitParams",
         "components": [
           {
             "name": "amountIn",
@@ -951,7 +990,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.SellWithPermitParams",
+        "internalType": "struct IYachaRouter.SellWithPermitParams",
         "components": [
           {
             "name": "amountIn",
@@ -1021,19 +1060,6 @@
       }
     ],
     "outputs": [],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "setDexRouterFeeRate",
-    "inputs": [
-      {
-        "name": "rate",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -1048,29 +1074,6 @@
       }
     ],
     "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "uniswapV3SwapCallback",
-    "inputs": [
-      {
-        "name": "amount0Delta",
-        "type": "int256",
-        "internalType": "int256"
-      },
-      {
-        "name": "amount1Delta",
-        "type": "int256",
-        "internalType": "int256"
-      },
-      {
-        "name": "data",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -1089,6 +1092,19 @@
     ],
     "outputs": [],
     "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "v3SwapAdapter",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1118,7 +1134,39 @@
   },
   {
     "type": "event",
-    "name": "Buy",
+    "name": "Create",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "creator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Initialized",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RouterBuy",
     "inputs": [
       {
         "name": "buyer",
@@ -1155,46 +1203,7 @@
   },
   {
     "type": "event",
-    "name": "Create",
-    "inputs": [
-      {
-        "name": "token",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "DexRouterFeeRateUpdate",
-    "inputs": [
-      {
-        "name": "rate",
-        "type": "uint16",
-        "indexed": false,
-        "internalType": "uint16"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "Initialized",
-    "inputs": [
-      {
-        "name": "version",
-        "type": "uint64",
-        "indexed": false,
-        "internalType": "uint64"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "Sell",
+    "name": "RouterSell",
     "inputs": [
       {
         "name": "seller",
@@ -1293,11 +1302,6 @@
   },
   {
     "type": "error",
-    "name": "AmountTooLarge",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "ERC1967InvalidImplementation",
     "inputs": [
       {
@@ -1310,11 +1314,6 @@
   {
     "type": "error",
     "name": "ERC1967NonPayable",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "ExactOutputNotFilled",
     "inputs": []
   },
   {
@@ -1354,12 +1353,38 @@
   },
   {
     "type": "error",
-    "name": "InvalidContract",
+    "name": "InvalidBalanceDelta",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "requiredBalance",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "currentBalance",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidDependency",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "InvalidFeeRate",
+    "name": "InvalidDexFeeRate",
     "inputs": []
   },
   {
@@ -1379,7 +1404,12 @@
   },
   {
     "type": "error",
-    "name": "InvalidSwapCallback",
+    "name": "InvalidV3Pool",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidV3Quote",
     "inputs": []
   },
   {
@@ -1390,16 +1420,6 @@
   {
     "type": "error",
     "name": "NotInitializing",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "ProtocolHalted",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "QuoteUnavailable",
     "inputs": []
   },
   {
@@ -1425,6 +1445,11 @@
   },
   {
     "type": "error",
+    "name": "TokenNotGraduated",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "UUPSUnauthorizedCallContext",
     "inputs": []
   },
@@ -1442,16 +1467,6 @@
   {
     "type": "error",
     "name": "UnexpectedNative",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "UnregisteredToken",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "UnsupportedTokenBehavior",
     "inputs": []
   }
 ]

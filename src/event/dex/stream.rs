@@ -17,7 +17,7 @@ use tracing::{error, info, instrument, warn};
 use crate::event::get_block_timestamp;
 use crate::{
     client::RpcClient,
-    config::{BLOCK_BATCH_SIZE, DEX_ROUTER_ADDRESS, WNATIVE_ADDRESS},
+    config::{BLOCK_BATCH_SIZE, WNATIVE_ADDRESS, YACHA_ROUTER_ADDRESS},
     db::cache::CacheManager,
     sync::{BlockRange, EventType, stream::STREAM_MANAGER},
     types::dex::{
@@ -37,8 +37,8 @@ sol! {
 sol! {
     #[allow(missing_docs)]
     #[sol(rpc)]
-    GiwaRouter,
-    "abi/GiwaRouter.json"
+    YachaRouter,
+    "abi/YachaRouter.json"
 }
 
 #[instrument()]
@@ -77,8 +77,8 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
                 IUniswapV3Pool::Swap::SIGNATURE,
                 IUniswapV3Pool::Mint::SIGNATURE,
                 IUniswapV3Pool::Burn::SIGNATURE,
-                GiwaRouter::Buy::SIGNATURE,
-                GiwaRouter::Sell::SIGNATURE,
+                YachaRouter::RouterBuy::SIGNATURE,
+                YachaRouter::RouterSell::SIGNATURE,
             ]);
 
         // 6) Fetch logs.
@@ -574,12 +574,12 @@ async fn parse_log(
 
             Ok(vec![DexEvent::from(burn)])
         }
-        Some(&GiwaRouter::Buy::SIGNATURE_HASH) => {
+        Some(&YachaRouter::RouterBuy::SIGNATURE_HASH) => {
             let address = log.address().to_string();
-            if !check_dex_router(address) {
-                return Err(anyhow::anyhow!("Not a DexRouter address"));
+            if !check_yacha_router(address) {
+                return Err(anyhow::anyhow!("Not a YachaRouter address"));
             }
-            let GiwaRouter::Buy {
+            let YachaRouter::RouterBuy {
                 buyer: event_sender,
                 token,
                 amountIn,
@@ -614,12 +614,12 @@ async fn parse_log(
 
             Ok(vec![DexEvent::from(buy)])
         }
-        Some(&GiwaRouter::Sell::SIGNATURE_HASH) => {
+        Some(&YachaRouter::RouterSell::SIGNATURE_HASH) => {
             let address = log.address().to_string();
-            if !check_dex_router(address) {
-                return Err(anyhow::anyhow!("Not a DexRouter address"));
+            if !check_yacha_router(address) {
+                return Err(anyhow::anyhow!("Not a YachaRouter address"));
             }
-            let GiwaRouter::Sell {
+            let YachaRouter::RouterSell {
                 seller: event_sender,
                 token,
                 amountIn,
@@ -703,8 +703,8 @@ fn calculate_mon_token_price(sqrt_price_x96: BigDecimal, token0_is_mon: bool) ->
     }
 }
 
-fn check_dex_router(address: String) -> bool {
-    if address == *DEX_ROUTER_ADDRESS {
+fn check_yacha_router(address: String) -> bool {
+    if address == *YACHA_ROUTER_ADDRESS {
         return true;
     }
     false
@@ -717,23 +717,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn giwa_router_and_v3_pool_signatures_resolve() {
-        // ABI 교체가 성공하면 이 심볼들이 컴파일된다. GiwaRouter.Buy/Sell,
+    fn yacha_router_and_v3_pool_signatures_resolve() {
+        // ABI 교체가 성공하면 이 심볼들이 컴파일된다. YachaRouter.RouterBuy/RouterSell,
         // IUniswapV3Pool.Swap/Mint/Burn 시그니처 해시를 고정한다.
-        let _ = GiwaRouter::Buy::SIGNATURE_HASH;
-        let _ = GiwaRouter::Sell::SIGNATURE_HASH;
+        let _ = YachaRouter::RouterBuy::SIGNATURE_HASH;
+        let _ = YachaRouter::RouterSell::SIGNATURE_HASH;
         let _ = IUniswapV3Pool::Swap::SIGNATURE_HASH;
         let _ = IUniswapV3Pool::Mint::SIGNATURE_HASH;
         let _ = IUniswapV3Pool::Burn::SIGNATURE_HASH;
     }
 
-    /// The dex handler filters GiwaRouter.Buy/Sell on `graduated`. This guards
-    /// the field the filter reads: encode a Buy/Sell event and confirm the
+    /// The dex handler filters YachaRouter.RouterBuy/RouterSell on `graduated`. This guards
+    /// the field the filter reads: encode RouterBuy/RouterSell events and confirm the
     /// decoded `graduated` round-trips both ways. If the ABI field order or
     /// type ever drifts, `if !graduated { skip }` would silently misclassify
     /// curve vs dex trades — this fails first.
     #[test]
-    fn giwa_router_buy_sell_graduated_field_round_trips() {
+    fn yacha_router_buy_sell_graduated_field_round_trips() {
         use alloy::primitives::{Address, U256};
         use alloy::sol_types::SolEvent;
 
@@ -741,32 +741,32 @@ mod tests {
         let account = Address::repeat_byte(0x22);
 
         for graduated in [true, false] {
-            let buy = GiwaRouter::Buy {
+            let buy = YachaRouter::RouterBuy {
                 buyer: account,
                 token,
                 amountIn: U256::from(1_000u64),
                 amountOut: U256::from(2_000u64),
                 graduated,
             };
-            let decoded =
-                GiwaRouter::Buy::decode_log_data(&buy.encode_log_data()).expect("Buy decodes");
+            let decoded = YachaRouter::RouterBuy::decode_log_data(&buy.encode_log_data())
+                .expect("RouterBuy decodes");
             assert_eq!(
                 decoded.graduated, graduated,
-                "Buy.graduated must round-trip"
+                "RouterBuy.graduated must round-trip"
             );
 
-            let sell = GiwaRouter::Sell {
+            let sell = YachaRouter::RouterSell {
                 seller: account,
                 token,
                 amountIn: U256::from(3_000u64),
                 amountOut: U256::from(4_000u64),
                 graduated,
             };
-            let decoded =
-                GiwaRouter::Sell::decode_log_data(&sell.encode_log_data()).expect("Sell decodes");
+            let decoded = YachaRouter::RouterSell::decode_log_data(&sell.encode_log_data())
+                .expect("RouterSell decodes");
             assert_eq!(
                 decoded.graduated, graduated,
-                "Sell.graduated must round-trip"
+                "RouterSell.graduated must round-trip"
             );
         }
     }

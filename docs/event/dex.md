@@ -2,10 +2,10 @@
 
 - **Event**: `Dex`
 - **Checkpoint**: `dex`
-- **Deployment addresses**: `DEX_FACTORY`, `DEX_ROUTER`
+- **Deployment addresses**: `DEX_FACTORY`, `YACHA_ROUTER`
 - **Dependency**: Curve
 
-Dex processes known canonical Uniswap V3 token pools and accepts router events only from the configured GiwaRouter address. Events are ordered by block number, transaction index, and log index, grouped by token where applicable, and then written in batches.
+Dex processes known canonical Uniswap V3 token pools and accepts router events only from the configured YachaRouter address. Events are ordered by block number, transaction index, and log index, grouped by token where applicable, and then written in batches.
 
 ## Swap
 
@@ -25,4 +25,4 @@ Mint and Burn carry the owner, liquidity delta, and token amounts. The stream re
 
 ## Router buy and sell
 
-GiwaRouter Buy/Sell events are accepted only from `DEX_ROUTER`. Buy identifies the user as `buyer`; Sell identifies the user as `seller`. Both provide the token, input and output amounts, and a `graduated` flag. The stream processes only `graduated=true`; `graduated=false` represents bonding-curve trades already indexed by the Curve handler and is skipped to prevent duplicate storage. Receive processing writes Dex points and fee history; point and fee calculations use `DEX_ROUTER_FEE_RATE`.
+YachaRouter RouterBuy/RouterSell events are accepted only from `YACHA_ROUTER`. RouterBuy identifies the user as `buyer`; RouterSell identifies the user as `seller`. Both provide the token, input and output amounts, and a `graduated` flag. The stream processes only `graduated=true`; `graduated=false` represents bonding-curve trades already indexed by the Curve handler and is skipped to prevent duplicate storage. Receive processing writes Dex points and fee history; point and fee calculations use `DEX_ROUTER_FEE_RATE`.
