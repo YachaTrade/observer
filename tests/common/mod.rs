@@ -974,7 +974,6 @@ pub async fn call_handle_lp_collect(
     pool: &PgPool,
     token_id: &str,
     quote_amount: &str,
-    token_amount: &str,
     transaction_hash: &str,
     tx_index: i32,
     log_index: i32,
@@ -985,7 +984,6 @@ pub async fn call_handle_lp_collect(
     sqlx::query(observer::db::postgres::controller::lp::HANDLE_LP_COLLECT_SQL)
         .bind(token_id)
         .bind(parse(quote_amount))
-        .bind(parse(token_amount))
         .bind(transaction_hash)
         .bind(tx_index)
         .bind(log_index)
@@ -993,6 +991,32 @@ pub async fn call_handle_lp_collect(
         .execute(pool)
         .await
         .context("failed to execute HANDLE_LP_COLLECT_SQL")?;
+    Ok(())
+}
+
+/// Call `BATCH_HANDLE_LP_COLLECT_SQL` with one array row.
+#[allow(clippy::too_many_arguments)]
+pub async fn call_batch_handle_lp_collect(
+    pool: &PgPool,
+    token_id: &str,
+    quote_amount: &str,
+    transaction_hash: &str,
+    tx_index: i32,
+    log_index: i32,
+    created_at: i64,
+) -> Result<()> {
+    use std::str::FromStr;
+    let parse = |s: &str| bigdecimal::BigDecimal::from_str(s).unwrap();
+    sqlx::query(observer::db::postgres::controller::lp::BATCH_HANDLE_LP_COLLECT_SQL)
+        .bind(&vec![token_id])
+        .bind(&vec![parse(quote_amount)])
+        .bind(&vec![transaction_hash])
+        .bind(&vec![tx_index])
+        .bind(&vec![log_index])
+        .bind(&vec![created_at])
+        .execute(pool)
+        .await
+        .context("failed to execute BATCH_HANDLE_LP_COLLECT_SQL")?;
     Ok(())
 }
 

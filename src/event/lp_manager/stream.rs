@@ -188,13 +188,13 @@ async fn parse_log(log: Log, client: &RpcClient) -> Result<Vec<LpManagerEvent>> 
             let pool = pool.to_string();
             let quote_amount = Arc::new(to_big_decimal(quoteAmount));
             let token_amount = Arc::new(to_big_decimal(tokenAmount));
-            let last_collect_time: u64 = timestamp.to::<u64>();
+            let event_timestamp: u64 = timestamp.to::<u64>();
             let allocate = Allocate {
                 token: Arc::new(token),
                 pool: Arc::new(pool),
                 quote_amount,
                 token_amount,
-                last_collect_time,
+                event_timestamp,
                 transaction_hash: Arc::new(transaction_hash),
                 block_number,
                 block_timestamp,
@@ -209,21 +209,18 @@ async fn parse_log(log: Log, client: &RpcClient) -> Result<Vec<LpManagerEvent>> 
                 token,
                 pool,
                 quoteAmount,
-                tokenAmount,
                 timestamp,
             } = log.log_decode()?.inner.data;
 
             let token = token.to_string();
             let pool = pool.to_string();
             let quote_amount = Arc::new(to_big_decimal(quoteAmount));
-            let token_amount = Arc::new(to_big_decimal(tokenAmount));
-            let last_collect_time: u64 = timestamp.to::<u64>();
+            let event_timestamp: u64 = timestamp.to::<u64>();
             let collect = Collect {
                 token: Arc::new(token),
                 pool: Arc::new(pool),
                 quote_amount,
-                token_amount,
-                last_collect_time,
+                event_timestamp,
                 transaction_hash: Arc::new(transaction_hash),
                 block_number,
                 block_timestamp,
@@ -244,6 +241,14 @@ mod tests {
     };
 
     use super::LPManager;
+
+    #[test]
+    fn lp_manager_collect_event_uses_quote_only_payload() {
+        assert_eq!(
+            LPManager::Collect::SIGNATURE,
+            "Collect(address,address,uint256,uint256)"
+        );
+    }
 
     #[test]
     fn lp_manager_event_signatures_and_fields_round_trip() {
@@ -267,13 +272,11 @@ mod tests {
             token,
             pool,
             quoteAmount: U256::from(400u64),
-            tokenAmount: U256::from(500u64),
             timestamp: U256::from(600u64),
         };
         let decoded = LPManager::Collect::decode_log_data(&collect.encode_log_data())
             .expect("Collect decodes");
         assert_eq!(decoded.quoteAmount, U256::from(400u64));
-        assert_eq!(decoded.tokenAmount, U256::from(500u64));
         assert_eq!(decoded.timestamp, U256::from(600u64));
     }
 }
