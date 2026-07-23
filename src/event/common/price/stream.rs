@@ -544,12 +544,18 @@ where
     Ok(collected)
 }
 
-/// Cadence for checking stream progress. Pyth fetch frequency is governed by
-/// canonical 100-block cache misses and the provider's request limiter.
-/// Catch-up iterations whose body already exceeds `POLL_INTERVAL` skip the
-/// sleep and run back-to-back, so this caps idle frequency without throttling
-/// backfill.
-const POLL_INTERVAL: Duration = Duration::from_secs(10);
+/// Cadence for checking stream progress, i.e. how fast the Price checkpoint
+/// (`set_last_processed_block(Price)`) advances toward chain head. Curve waits
+/// on that checkpoint and Dex / LpManager / Vault / Token transitively wait on
+/// Curve, so this value is the floor on the whole pipeline's live latency — a
+/// large value here throttles every downstream stream, not just price
+/// freshness. It is intentionally small: Pyth fetch frequency is governed by
+/// canonical 100-block cache misses and the provider's request limiter, NOT by
+/// how often this loop runs, so a fast cadence unblocks Curve without touching
+/// the Pyth budget. Catch-up iterations whose body already exceeds
+/// `POLL_INTERVAL` skip the sleep and run back-to-back, so this caps idle
+/// frequency without throttling backfill.
+const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 async fn wait_for_next_cycle(iteration_started: Instant) {
     if let Some(remaining) = POLL_INTERVAL.checked_sub(iteration_started.elapsed()) {
