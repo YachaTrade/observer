@@ -6,13 +6,13 @@ mod common;
 
 use anyhow::Result;
 use common::{
-    call_batch_handle_burns, call_batch_handle_graduates, call_batch_insert_burns_mint,
-    call_batch_insert_mints, call_batch_insert_pools, call_batch_insert_tokens_and_markets,
-    call_batch_update_pool_reserves, call_handle_burn, call_handle_curve_sync,
-    call_handle_dex_sync, call_handle_lp_allocate, call_handle_lp_collect, count_lp_allocate,
-    count_lp_collect, count_rows_for_token, count_token_metadata, get_is_graduated, get_market_row,
-    get_pool_row, get_token_count, get_total_supply, insert_market, insert_token,
-    insert_token_metadata, setup_test_db,
+    call_batch_handle_burns, call_batch_handle_graduates, call_batch_handle_lp_collect,
+    call_batch_insert_burns_mint, call_batch_insert_mints, call_batch_insert_pools,
+    call_batch_insert_tokens_and_markets, call_batch_update_pool_reserves, call_handle_burn,
+    call_handle_curve_sync, call_handle_dex_sync, call_handle_lp_allocate, call_handle_lp_collect,
+    count_lp_allocate, count_lp_collect, count_rows_for_token, count_token_metadata,
+    get_is_graduated, get_market_row, get_pool_row, get_token_count, get_total_supply,
+    insert_market, insert_token, insert_token_metadata, setup_test_db,
 };
 
 // Shared test constants
@@ -712,17 +712,17 @@ async fn lp_allocate_duplicate_no_op() -> Result<()> {
 async fn lp_collect_happy_path() -> Result<()> {
     let db = setup_test_db().await?;
 
-    call_handle_lp_collect(&db.pool, TOKEN, "500", "250", "0xtx1", 0, 0, 1_700_000_000).await?;
+    call_handle_lp_collect(&db.pool, TOKEN, "500", "0xtx1", 0, 0, 1_700_000_000).await?;
 
     assert_eq!(count_lp_collect(&db.pool, TOKEN).await?, 1);
-    let split_columns: (String, String, String) = sqlx::query_as(
-        "SELECT c_amount::text, ft_amount::text, ct_amount::text \
+    let row: (String, String, i32, i32, i64) = sqlx::query_as(
+        "SELECT quote_amount::text, transaction_hash, tx_index, log_index, created_at \
          FROM lp_collect_history WHERE token_id = $1",
     )
     .bind(TOKEN)
     .fetch_one(&db.pool)
     .await?;
-    assert_eq!(split_columns, ("0".into(), "0".into(), "0".into()));
+    assert_eq!(row, ("500".into(), "0xtx1".into(), 0, 0, 1_700_000_000));
     Ok(())
 }
 
@@ -731,9 +731,39 @@ async fn lp_collect_happy_path() -> Result<()> {
 async fn lp_collect_duplicate_no_op() -> Result<()> {
     let db = setup_test_db().await?;
 
-    call_handle_lp_collect(&db.pool, TOKEN, "500", "250", "0xtx1", 0, 0, 1_700_000_000).await?;
-    call_handle_lp_collect(&db.pool, TOKEN, "999", "999", "0xtx1", 0, 0, 1_700_000_001).await?;
+    call_handle_lp_collect(&db.pool, TOKEN, "500", "0xtx1", 0, 0, 1_700_000_000).await?;
+    call_handle_lp_collect(&db.pool, TOKEN, "999", "0xtx1", 0, 0, 1_700_000_001).await?;
 
     assert_eq!(count_lp_collect(&db.pool, TOKEN).await?, 1);
+    Ok(())
+}
+
+/// Current four-field Collect events reach the production batch SQL.
+#[tokio::test]
+async fn lp_collect_batch_persists_current_event_shape() -> Result<()> {
+    let db = setup_test_db().await?;
+
+    call_batch_handle_lp_collect(
+        &db.pool,
+        TOKEN,
+        "750",
+        "0xcollectbatch",
+        3,
+        4,
+        1_700_000_002,
+    )
+    .await?;
+
+    let row: (String, String, i32, i32, i64) = sqlx::query_as(
+        "SELECT quote_amount::text, transaction_hash, tx_index, log_index, created_at \
+         FROM lp_collect_history WHERE token_id = $1",
+    )
+    .bind(TOKEN)
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(
+        row,
+        ("750".into(), "0xcollectbatch".into(), 3, 4, 1_700_000_002,)
+    );
     Ok(())
 }

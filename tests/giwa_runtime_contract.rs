@@ -154,6 +154,98 @@ fn active_streams_use_deployed_yacha_router_and_lp_manager_events() {
 }
 
 #[test]
+fn lp_manager_collect_contract_is_quote_only() {
+    let stream = include_str!("../src/event/lp_manager/stream.rs");
+    let types = include_str!("../src/types/lp_manager.rs");
+    let abi: serde_json::Value =
+        serde_json::from_str(include_str!("../abi/LPManager.json")).expect("valid LPManager ABI");
+    let collect_type = types
+        .split("pub struct Collect")
+        .nth(1)
+        .expect("Collect type")
+        .split("pub enum LpManagerEvent")
+        .next()
+        .expect("Collect fields");
+    let collect_event = abi
+        .as_array()
+        .expect("ABI array")
+        .iter()
+        .find(|item| item["type"] == "event" && item["name"] == "Collect")
+        .expect("Collect ABI event");
+    let input_names: Vec<&str> = collect_event["inputs"]
+        .as_array()
+        .expect("Collect inputs")
+        .iter()
+        .map(|input| input["name"].as_str().expect("input name"))
+        .collect();
+
+    assert!(stream.contains("\"Collect(address,address,uint256,uint256)\""));
+    assert!(!stream.contains("LegacyLPManagerEvents"));
+    assert!(!collect_type.contains("token_amount"));
+    assert_eq!(input_names, ["token", "pool", "quoteAmount", "timestamp"]);
+}
+
+#[test]
+fn lp_collect_persistence_uses_quote_only_columns() {
+    let controller = include_str!("../src/db/postgres/controller/lp.rs");
+    let collect_sql = controller
+        .split("pub const HANDLE_LP_COLLECT_SQL")
+        .nth(1)
+        .expect("single collect SQL")
+        .split("pub const BATCH_HANDLE_LP_ALLOCATE_SQL")
+        .next()
+        .expect("single collect SQL body");
+    let batch_collect_sql = controller
+        .split("pub const BATCH_HANDLE_LP_COLLECT_SQL")
+        .nth(1)
+        .expect("batch collect SQL")
+        .split("pub struct LpController")
+        .next()
+        .expect("batch collect SQL body");
+
+    for forbidden in ["token_amount", "c_amount", "ft_amount", "ct_amount"] {
+        assert!(
+            !collect_sql.contains(forbidden),
+            "single collect SQL still references {forbidden}"
+        );
+        assert!(
+            !batch_collect_sql.contains(forbidden),
+            "batch collect SQL still references {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn lp_collect_migrations_define_quote_only_schema() {
+    let init = include_str!("../migrations/0001_init.sql");
+    let collect_table = init
+        .split("CREATE TABLE IF NOT EXISTS lp_collect_history")
+        .nth(1)
+        .expect("lp_collect_history table")
+        .split("CREATE OR REPLACE FUNCTION update_lp_collect_status_from_collect")
+        .next()
+        .expect("lp_collect_history definition");
+
+    for forbidden in ["token_amount", "c_amount", "ft_amount", "ct_amount"] {
+        assert!(
+            !collect_table.contains(forbidden),
+            "fresh lp_collect_history still defines {forbidden}"
+        );
+    }
+
+    let migration_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("migrations/0002_lp_collect_quote_only.sql");
+    let migration = std::fs::read_to_string(&migration_path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", migration_path.display()));
+    for retired in ["token_amount", "c_amount", "ft_amount", "ct_amount"] {
+        assert!(
+            migration.contains(&format!("DROP COLUMN IF EXISTS {retired}")),
+            "existing-database migration does not drop {retired}"
+        );
+    }
+}
+
+#[test]
 fn giwa_event_types_include_vault_streams() {
     let sync = include_str!("../src/sync/mod.rs");
 
