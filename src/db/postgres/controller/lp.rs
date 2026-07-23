@@ -26,7 +26,7 @@ pub const HANDLE_LP_COLLECT_SQL: &str = r#"
                         token_id, quote_amount, token_amount, c_amount, ft_amount, ct_amount,
                         transaction_hash, tx_index, log_index, created_at
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    VALUES ($1, $2, $3, 0, 0, 0, $4, $5, $6, $7)
                     ON CONFLICT (token_id, transaction_hash, tx_index, log_index) DO NOTHING
                     "#;
 
@@ -49,18 +49,17 @@ pub const BATCH_HANDLE_LP_ALLOCATE_SQL: &str = r#"
 /// SQL for batch inserting LP collect history rows via UNNEST + CTE.
 pub const BATCH_HANDLE_LP_COLLECT_SQL: &str = r#"
                 WITH collect_data AS (
-                    SELECT token_id, quote_amount, token_amount, c_amount, ft_amount, ct_amount, transaction_hash, tx_index, log_index, created_at
+                    SELECT token_id, quote_amount, token_amount, transaction_hash, tx_index, log_index, created_at
                     FROM UNNEST(
                         $1::text[], $2::numeric[], $3::numeric[],
-                        $4::numeric[], $5::numeric[], $6::numeric[],
-                        $7::text[], $8::int[], $9::int[], $10::bigint[]
-                    ) AS t(token_id, quote_amount, token_amount, c_amount, ft_amount, ct_amount, transaction_hash, tx_index, log_index, created_at)
+                        $4::text[], $5::int[], $6::int[], $7::bigint[]
+                    ) AS t(token_id, quote_amount, token_amount, transaction_hash, tx_index, log_index, created_at)
                 )
                 INSERT INTO lp_collect_history (
                     token_id, quote_amount, token_amount, c_amount, ft_amount, ct_amount,
                     transaction_hash, tx_index, log_index, created_at
                 )
-                SELECT token_id, quote_amount, token_amount, c_amount, ft_amount, ct_amount,
+                SELECT token_id, quote_amount, token_amount, 0, 0, 0,
                     transaction_hash, tx_index, log_index, created_at
                 FROM collect_data
                 ON CONFLICT (token_id, transaction_hash, tx_index, log_index) DO NOTHING
@@ -136,13 +135,10 @@ impl LpController {
                     .bind(collect.token.as_ref().as_str()) //$1
                     .bind(collect.quote_amount.as_ref()) //$2
                     .bind(collect.token_amount.as_ref()) //$3
-                    .bind(collect.c_amount.as_ref()) //$4
-                    .bind(collect.ft_amount.as_ref()) //$5
-                    .bind(collect.ct_amount.as_ref()) //$6
-                    .bind(collect.transaction_hash.as_ref().as_str()) //$7
-                    .bind(collect.transaction_index as i32) //$8
-                    .bind(collect.log_index as i32) //$9
-                    .bind(collect.block_timestamp as i64) //$10
+                    .bind(collect.transaction_hash.as_ref().as_str()) //$4
+                    .bind(collect.transaction_index as i32) //$5
+                    .bind(collect.log_index as i32) //$6
+                    .bind(collect.block_timestamp as i64) //$7
                     .execute(&self.db.pool)
                     .await
             }) {
@@ -288,12 +284,6 @@ impl LpController {
                 collects.iter().map(|c| c.quote_amount.as_ref()).collect();
             let token_amounts: Vec<&bigdecimal::BigDecimal> =
                 collects.iter().map(|c| c.token_amount.as_ref()).collect();
-            let c_amounts: Vec<&bigdecimal::BigDecimal> =
-                collects.iter().map(|c| c.c_amount.as_ref()).collect();
-            let ft_amounts: Vec<&bigdecimal::BigDecimal> =
-                collects.iter().map(|c| c.ft_amount.as_ref()).collect();
-            let ct_amounts: Vec<&bigdecimal::BigDecimal> =
-                collects.iter().map(|c| c.ct_amount.as_ref()).collect();
             let transaction_hashes: Vec<&str> = collects
                 .iter()
                 .map(|c| c.transaction_hash.as_ref().as_str())
@@ -310,13 +300,10 @@ impl LpController {
                     .bind(&token_ids) // $1
                     .bind(&quote_amounts) // $2
                     .bind(&token_amounts) // $3
-                    .bind(&c_amounts) // $4 (creator treasury)
-                    .bind(&ft_amounts) // $5 (foundation treasury)
-                    .bind(&ct_amounts) // $6 (community treasury)
-                    .bind(&transaction_hashes) // $7
-                    .bind(&tx_indexes) // $8
-                    .bind(&log_indexes) // $9
-                    .bind(&created_ats) // $10
+                    .bind(&transaction_hashes) // $4
+                    .bind(&tx_indexes) // $5
+                    .bind(&log_indexes) // $6
+                    .bind(&created_ats) // $7
                     .execute(&self.db.pool)
                     .await
             }) {

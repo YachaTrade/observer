@@ -7,22 +7,30 @@
 
 LpManager events are ordered by block number, transaction index, and log index, grouped by token, and persisted in allocation and collection batches.
 
-## LpManagerAllocate
+## Allocate
 
-LpManagerAllocate is emitted when liquidity is assigned to a graduated token's pool.
+Allocate is emitted when liquidity is assigned to a graduated token's pool.
 
 | Field | Meaning |
 | --- | --- |
 | `token` | token address |
 | `pool` | pool address |
-| `monAmount` | allocated quote amount |
+| `quoteAmount` | allocated quote amount |
 | `tokenAmount` | allocated token amount |
-| `lastCollectTime` | latest collection timestamp |
+| `timestamp` | allocation timestamp |
 
 Receive processing writes the allocation history through the LP controller.
 
-## LpManagerCollect
+## Collect
 
-LpManagerCollect reports quote and token amounts collected from the pool. The stream reads the manager's creator, foundation, and community treasury fee rates, calculates each quote-token share on the contract's 1,000,000 denominator, and includes those amounts in the collection batch.
+Collect reports the quote and token fees collected from the pool.
+
+| Field | Meaning |
+| --- | --- |
+| `token` | token address |
+| `pool` | pool address |
+| `quoteAmount` | collected quote-token amount |
+| `tokenAmount` | collected launch-token amount |
+| `timestamp` | collection timestamp |
 
 Allocation and collection batches are submitted concurrently for each token.
