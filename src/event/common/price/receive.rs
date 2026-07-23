@@ -26,6 +26,7 @@ pub async fn receive_events(
             events,
             to_block,
             latest_block,
+            ack,
         } = batch;
 
         let time = Instant::now();
@@ -43,9 +44,20 @@ pub async fn receive_events(
         }
 
         let price_controller = PriceController::new(db.clone());
-
+        let mut receive_error: Option<anyhow::Error> = None;
         for (quote_id, price_batch) in &by_quote {
-            // Cache in memory (quote-keyed for all quotes)
+            if let Err(e) = price_controller
+                .batch_insert_prices(quote_id, price_batch)
+                .await
+            {
+                error!(
+                    "[PRICE] Batch insert failed for quote {}: {:#}",
+                    quote_id, e
+                );
+                receive_error = Some(e);
+                break;
+            }
+
             if let Ok(cache_manager) = CacheManager::instance() {
                 let cache_batch: Vec<(i64, bigdecimal::BigDecimal)> = price_batch
                     .iter()
@@ -62,17 +74,11 @@ pub async fn receive_events(
                     quote_id
                 );
             }
+        }
 
-            // Persist to DB
-            if let Err(e) = price_controller
-                .batch_insert_prices(quote_id, price_batch)
-                .await
-            {
-                error!(
-                    "[PRICE] Batch insert failed for quote {}: {:#}",
-                    quote_id, e
-                );
-            }
+        if let Some(error) = receive_error {
+            let _ = ack.send(Err(format!("{error:#}")));
+            return Err(error);
         }
 
         let elapsed_ms = time.elapsed().as_millis();
@@ -90,6 +96,7 @@ pub async fn receive_events(
         RECEIVE_MANAGER
             .set_last_processed_block(event_type, to_block, latest_block)
             .await;
+        let _ = ack.send(Ok(()));
     }
 
     Ok(())
