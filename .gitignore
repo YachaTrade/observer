@@ -24,3 +24,11 @@ CLAUDE.md
 # Local agent / scheduler scratch
 .claude/scheduled_tasks.lock
 .context/
+
+# AI agent tooling
+.claude/
+.superpowers/
+.omc/
+docs/superpowers/
+AGENTS.md
+docs/agents.md
