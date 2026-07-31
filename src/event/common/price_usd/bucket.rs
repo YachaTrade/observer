@@ -1,14 +1,9 @@
-//! Pure 25-block bucketing for the PriceUsd stream.
+//! Pure 60-second wall-clock bucketing for the PriceUsd stream.
 
-pub const BUCKET_BLOCK_INTERVAL: u64 = 25;
-
-pub fn bucket_of(block: u64) -> u64 {
-    block - block % BUCKET_BLOCK_INTERVAL
-}
+use crate::event::common::bucket_of_ts;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BucketGroup {
-    pub bucket_block: u64,
     pub bucket_ts: u64,
     pub blocks: Vec<(u64, u64)>,
 }
@@ -16,14 +11,13 @@ pub struct BucketGroup {
 pub fn group_into_buckets(blocks: &[(u64, u64)]) -> Vec<BucketGroup> {
     let mut groups: Vec<BucketGroup> = Vec::new();
     for &(block, timestamp) in blocks {
-        let bucket_block = bucket_of(block);
+        let bucket_ts = bucket_of_ts(timestamp);
         match groups.last_mut() {
-            Some(group) if group.bucket_block == bucket_block => {
+            Some(group) if group.bucket_ts == bucket_ts => {
                 group.blocks.push((block, timestamp));
             }
             _ => groups.push(BucketGroup {
-                bucket_block,
-                bucket_ts: timestamp,
+                bucket_ts,
                 blocks: vec![(block, timestamp)],
             }),
         }
@@ -48,7 +42,7 @@ pub fn select_fetch(bucket_ts: u64, now: u64, tip_threshold_secs: u64) -> FetchK
 pub fn buckets_to_fetch(grouped: &[BucketGroup], last_fetched: Option<u64>) -> Vec<BucketGroup> {
     grouped
         .iter()
-        .filter(|group| last_fetched.is_none_or(|last| group.bucket_block > last))
+        .filter(|group| last_fetched.is_none_or(|last| group.bucket_ts > last))
         .cloned()
         .collect()
 }

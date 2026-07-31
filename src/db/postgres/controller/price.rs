@@ -1,9 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use crate::{config::DEFAULT_DELAY, db::postgres::PostgresDatabase, measure_postgres};
 
 use anyhow::{Result, anyhow};
 use bigdecimal::BigDecimal;
+use sqlx::PgPool;
 use tokio::time::sleep;
 use tracing::{error, warn};
 
@@ -15,21 +16,68 @@ pub const INSERT_PRICE_SQL: &str = r#"
     DO NOTHING
 "#;
 
-/// SQL for batch price INSERT via UNNEST.
-pub const BATCH_INSERT_PRICES_SQL: &str = r#"
+const ATOMIC_BATCH_INSERT_PRICES_SQL: &str = r#"
     INSERT INTO price (quote_id, block_number, price, created_at)
-    SELECT
-        $1 AS quote_id,
-        block_number,
-        price,
-        created_at
+    SELECT quote_id, block_number, price, created_at
     FROM UNNEST(
-        $2::bigint[],   -- block_numbers
-        $3::numeric[],  -- prices
-        $4::bigint[]    -- created_ats
-    ) AS t(block_number, price, created_at)
+        $1::text[],
+        $2::bigint[],
+        $3::numeric[],
+        $4::bigint[]
+    ) AS requested(quote_id, block_number, price, created_at)
     ON CONFLICT (quote_id, block_number) DO NOTHING
 "#;
+
+const SELECT_CANONICAL_PRICES_SQL: &str = r#"
+    SELECT price.quote_id::text, price.block_number, price.price
+    FROM UNNEST($1::text[], $2::bigint[]) WITH ORDINALITY
+        AS requested(quote_id, block_number, ordinal)
+    JOIN price
+      ON price.quote_id::text = requested.quote_id
+     AND price.block_number = requested.block_number
+    ORDER BY requested.ordinal
+"#;
+
+fn to_postgres_bigint(value: u64, field: &str) -> Result<i64> {
+    i64::try_from(value).map_err(|_| anyhow!("{field}={value} is out of PostgreSQL BIGINT range"))
+}
+
+pub async fn has_persisted_prices_at_blocks(
+    pool: &PgPool,
+    quote_id: &str,
+    block_numbers: &[i64],
+) -> bool {
+    let unique_blocks = block_numbers
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    if unique_blocks.is_empty() {
+        return true;
+    }
+
+    let count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)::bigint FROM price WHERE quote_id = $1 AND block_number = ANY($2::bigint[])",
+    )
+    .bind(quote_id)
+    .bind(&unique_blocks)
+    .fetch_one(pool)
+    .await;
+
+    match count {
+        Ok(count) => count == unique_blocks.len() as i64,
+        Err(error) => {
+            warn!(
+                "[PRICE] persisted price probe failed for quote={} block_count={}: {}",
+                quote_id,
+                unique_blocks.len(),
+                error
+            );
+            false
+        }
+    }
+}
 
 pub struct PriceController {
     pub db: Arc<PostgresDatabase>,
@@ -40,6 +88,78 @@ impl PriceController {
         PriceController { db }
     }
 
+    /// Atomically persists a complete multi-quote Price cycle and returns the
+    /// canonical rows that callers may safely place in memory caches.
+    ///
+    /// Existing rows win via `ON CONFLICT DO NOTHING`; reading them back in the
+    /// same transaction prevents an acknowledged replay from caching a newly
+    /// fetched value that differs from PostgreSQL.
+    pub async fn persist_price_batch(
+        &self,
+        prices: &[(String, u64, BigDecimal, u64)],
+    ) -> Result<Vec<(String, i64, BigDecimal)>> {
+        if prices.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut unique_keys = HashSet::with_capacity(prices.len());
+        for (quote_id, block_number, _, _) in prices {
+            if !unique_keys.insert((quote_id.as_str(), *block_number)) {
+                return Err(anyhow!(
+                    "duplicate price row in batch: quote={} block={}",
+                    quote_id,
+                    block_number
+                ));
+            }
+        }
+
+        let quote_ids = prices
+            .iter()
+            .map(|(quote_id, _, _, _)| quote_id.clone())
+            .collect::<Vec<_>>();
+        let block_numbers = prices
+            .iter()
+            .map(|(_, block_number, _, _)| to_postgres_bigint(*block_number, "block_number"))
+            .collect::<Result<Vec<_>>>()?;
+        let price_values = prices
+            .iter()
+            .map(|(_, _, price, _)| price.clone())
+            .collect::<Vec<_>>();
+        let timestamps = prices
+            .iter()
+            .map(|(_, _, _, timestamp)| to_postgres_bigint(*timestamp, "timestamp"))
+            .collect::<Result<Vec<_>>>()?;
+
+        let mut transaction = self.db.pool.begin().await?;
+        measure_postgres!("price_atomic_batch_insert", {
+            sqlx::query(ATOMIC_BATCH_INSERT_PRICES_SQL)
+                .bind(&quote_ids)
+                .bind(&block_numbers)
+                .bind(&price_values)
+                .bind(&timestamps)
+                .execute(&mut *transaction)
+                .await
+        })?;
+
+        let canonical = measure_postgres!("price_select_canonical_batch", {
+            sqlx::query_as::<_, (String, i64, BigDecimal)>(SELECT_CANONICAL_PRICES_SQL)
+                .bind(&quote_ids)
+                .bind(&block_numbers)
+                .fetch_all(&mut *transaction)
+                .await
+        })?;
+        if canonical.len() != prices.len() {
+            return Err(anyhow!(
+                "canonical price batch incomplete after insert: expected={} actual={}",
+                prices.len(),
+                canonical.len()
+            ));
+        }
+
+        transaction.commit().await?;
+        Ok(canonical)
+    }
+
     pub async fn insert_price(
         &self,
         quote_id: &str,
@@ -47,6 +167,8 @@ impl PriceController {
         price: BigDecimal,
         timestamp: u64,
     ) -> Result<()> {
+        let block_number = to_postgres_bigint(block_number, "block_number")?;
+        let timestamp = to_postgres_bigint(timestamp, "timestamp")?;
         let max_attempts = 5;
         let mut attempt = 0;
         let base_delay = Duration::from_millis(*DEFAULT_DELAY);
@@ -58,9 +180,9 @@ impl PriceController {
             match measure_postgres!("price_insert_price", {
                 sqlx::query(INSERT_PRICE_SQL)
                     .bind(quote_id)
-                    .bind(block_number as i64)
+                    .bind(block_number)
                     .bind(&price)
-                    .bind(timestamp as i64)
+                    .bind(timestamp)
                     .execute(&self.db.pool)
                     .await
             }) {
@@ -91,84 +213,6 @@ impl PriceController {
                         sleep(current_delay).await;
                         continue;
                     }
-                }
-            }
-        }
-    }
-
-    // Batch insert prices
-    pub async fn batch_insert_prices(
-        &self,
-        quote_id: &str,
-        prices: &[(u64, BigDecimal, u64)], // (block_number, price, timestamp)
-    ) -> Result<()> {
-        if prices.is_empty() {
-            return Ok(());
-        }
-
-        // 1000개씩 chunk로 나눠서 처리
-        for chunk in prices.chunks(1000) {
-            self.batch_insert_prices_chunk(quote_id, chunk).await?;
-        }
-
-        Ok(())
-    }
-
-    async fn batch_insert_prices_chunk(
-        &self,
-        quote_id: &str,
-        prices: &[(u64, BigDecimal, u64)], // (block_number, price, timestamp)
-    ) -> Result<()> {
-        let max_attempts = 5;
-        let base_delay = Duration::from_millis(*DEFAULT_DELAY);
-        let mut attempt = 0;
-
-        loop {
-            attempt += 1;
-            let current_delay = base_delay.mul_f32(1.5_f32.powi(attempt - 1));
-
-            let block_numbers: Vec<i64> = prices.iter().map(|(bn, _, _)| *bn as i64).collect();
-            let price_vals: Vec<BigDecimal> = prices.iter().map(|(_, p, _)| p.clone()).collect();
-            let timestamps: Vec<i64> = prices.iter().map(|(_, _, ts)| *ts as i64).collect();
-
-            match measure_postgres!("price_batch_insert_prices", {
-                sqlx::query(BATCH_INSERT_PRICES_SQL)
-                    .bind(quote_id)
-                    .bind(&block_numbers)
-                    .bind(&price_vals)
-                    .bind(&timestamps)
-                    .execute(&self.db.pool)
-                    .await
-            }) {
-                Ok(_) => {
-                    return Ok(());
-                }
-                Err(e) => {
-                    warn!(
-                        "[PRICE] Failed to batch insert {} prices on attempt {}: {}",
-                        prices.len(),
-                        attempt,
-                        e
-                    );
-
-                    let is_deadlock = e.to_string().to_lowercase().contains("deadlock");
-                    if is_deadlock {
-                        let deadlock_delay = base_delay.mul_f32(2.0_f32.powi(attempt - 1));
-                        warn!(
-                            "[PRICE] Deadlock detected in batch_insert_prices, retrying with backoff of {}ms",
-                            deadlock_delay.as_millis()
-                        );
-                        sleep(deadlock_delay).await;
-                        continue;
-                    } else if attempt >= max_attempts {
-                        return Err(anyhow::anyhow!(
-                            "Failed to batch insert prices after {} attempts: {}",
-                            attempt,
-                            e
-                        ));
-                    }
-                    sleep(current_delay).await;
-                    continue;
                 }
             }
         }

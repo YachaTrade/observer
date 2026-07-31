@@ -1,140 +1,123 @@
-//! Pure contracts for the `price_usd` 25-block bucketing helpers.
-
 use observer::event::common::price_usd::bucket::{
-    BUCKET_BLOCK_INTERVAL, BucketGroup, FetchKind, bucket_of, buckets_to_fetch, group_into_buckets,
-    select_fetch,
+    BucketGroup, FetchKind, buckets_to_fetch, group_into_buckets, select_fetch,
 };
+use observer::event::common::{BUCKET_WINDOW_SECS, bucket_of_ts};
 
 #[test]
-fn bucket_interval_is_25_matching_price_stream() {
-    assert_eq!(BUCKET_BLOCK_INTERVAL, 25);
+fn shared_bucket_window_is_sixty_seconds() {
+    assert_eq!(BUCKET_WINDOW_SECS, 60);
+    assert_eq!(bucket_of_ts(0), 0);
+    assert_eq!(bucket_of_ts(59), 0);
+    assert_eq!(bucket_of_ts(60), 60);
+    assert_eq!(bucket_of_ts(119), 60);
 }
 
 #[test]
-fn bucket_of_floors_to_25_block_boundary() {
-    assert_eq!(bucket_of(0), 0);
-    assert_eq!(bucket_of(1), 0);
-    assert_eq!(bucket_of(24), 0);
-    assert_eq!(bucket_of(25), 25);
-    assert_eq!(bucket_of(26), 25);
-    assert_eq!(bucket_of(49), 25);
-    assert_eq!(bucket_of(50), 50);
-    assert_eq!(bucket_of(124), 100);
-    assert_eq!(bucket_of(125), 125);
+fn timestamp_on_boundary_is_unchanged_and_floor_never_moves_forward() {
+    for timestamp in [0_u64, 60, 600, 1_785_138_300] {
+        assert_eq!(bucket_of_ts(timestamp), timestamp);
+    }
+    for timestamp in [0_u64, 1, 59, 60, 61, 1_785_138_347] {
+        assert!(bucket_of_ts(timestamp) <= timestamp);
+    }
 }
 
 #[test]
-fn group_into_buckets_empty_input_yields_no_groups() {
-    let groups = group_into_buckets(&[]);
-    assert!(groups.is_empty());
+fn empty_input_has_no_groups() {
+    assert!(group_into_buckets(&[]).is_empty());
 }
 
 #[test]
-fn group_into_buckets_single_bucket_uses_first_member_timestamp() {
-    let groups = group_into_buckets(&[(48, 4800), (49, 4900)]);
-    assert_eq!(groups.len(), 1);
+fn a_single_window_carries_the_grid_floor_and_original_timestamps() {
     assert_eq!(
-        groups[0],
-        BucketGroup {
-            bucket_block: 25,
-            bucket_ts: 4800,
-            blocks: vec![(48, 4800), (49, 4900)],
-        }
+        group_into_buckets(&[(48, 6_042), (49, 6_058)]),
+        vec![BucketGroup {
+            bucket_ts: 6_000,
+            blocks: vec![(48, 6_042), (49, 6_058)],
+        }]
     );
 }
 
 #[test]
-fn group_into_buckets_splits_across_25_block_boundary() {
-    let groups = group_into_buckets(&[(48, 4800), (49, 4900), (50, 5000), (51, 5100)]);
-    assert_eq!(groups.len(), 2);
-    assert_eq!(groups[0].bucket_block, 25);
-    assert_eq!(groups[0].bucket_ts, 4800);
-    assert_eq!(groups[0].blocks, vec![(48, 4800), (49, 4900)]);
-    assert_eq!(groups[1].bucket_block, 50);
-    assert_eq!(groups[1].bucket_ts, 5000);
-    assert_eq!(groups[1].blocks, vec![(50, 5000), (51, 5100)]);
+fn groups_by_timestamp_window_not_block_number() {
+    let groups = group_into_buckets(&[(48, 6_042), (49, 6_059), (50, 6_060), (51, 6_075)]);
+    assert_eq!(
+        groups,
+        vec![
+            BucketGroup {
+                bucket_ts: 6_000,
+                blocks: vec![(48, 6_042), (49, 6_059)],
+            },
+            BucketGroup {
+                bucket_ts: 6_060,
+                blocks: vec![(50, 6_060), (51, 6_075)],
+            },
+        ]
+    );
 }
 
 #[test]
-fn group_into_buckets_block_on_boundary_starts_new_bucket() {
-    let groups = group_into_buckets(&[(50, 5000)]);
-    assert_eq!(groups.len(), 1);
-    assert_eq!(groups[0].bucket_block, 50);
-    assert_eq!(groups[0].bucket_ts, 5000);
-    assert_eq!(groups[0].blocks, vec![(50, 5000)]);
+fn block_count_does_not_change_the_number_of_time_windows() {
+    let fast: Vec<(u64, u64)> = (0..200)
+        .map(|offset| (1_000 + offset, 60_000 + offset * 60 / 200))
+        .collect();
+    let slow: Vec<(u64, u64)> = (0..120)
+        .map(|offset| (9_000 + offset, 60_000 + offset * 60 / 120))
+        .collect();
+
+    let fast_groups = group_into_buckets(&fast);
+    let slow_groups = group_into_buckets(&slow);
+    assert_eq!(fast_groups.len(), 1);
+    assert_eq!(slow_groups.len(), 1);
+    assert_eq!(fast_groups[0].blocks.len(), 200);
+    assert_eq!(slow_groups[0].blocks.len(), 120);
 }
 
 const NOW: u64 = 1_000_000;
 const TIP_THRESHOLD: u64 = 120;
 
 #[test]
-fn select_fetch_recent_bucket_uses_current() {
+fn selects_current_at_tip_and_historical_for_past_buckets() {
     assert_eq!(
         select_fetch(NOW - 10, NOW, TIP_THRESHOLD),
         FetchKind::Current
     );
-}
-
-#[test]
-fn select_fetch_exactly_at_threshold_is_still_current() {
     assert_eq!(
         select_fetch(NOW - TIP_THRESHOLD, NOW, TIP_THRESHOLD),
         FetchKind::Current
     );
-}
-
-#[test]
-fn select_fetch_past_bucket_uses_historical_at_bucket_ts() {
     assert_eq!(
         select_fetch(NOW - TIP_THRESHOLD - 1, NOW, TIP_THRESHOLD),
         FetchKind::Historical(NOW - TIP_THRESHOLD - 1)
     );
-    assert_eq!(
-        select_fetch(NOW - 5000, NOW, TIP_THRESHOLD),
-        FetchKind::Historical(NOW - 5000)
-    );
 }
 
-fn groups_at(bucket_blocks: &[u64]) -> Vec<BucketGroup> {
-    bucket_blocks
+fn groups_at(bucket_timestamps: &[u64]) -> Vec<BucketGroup> {
+    bucket_timestamps
         .iter()
-        .map(|&bucket| BucketGroup {
-            bucket_block: bucket,
-            bucket_ts: bucket * 100,
-            blocks: vec![(bucket, bucket * 100)],
+        .map(|&timestamp| BucketGroup {
+            bucket_ts: timestamp,
+            blocks: vec![(timestamp / 60, timestamp)],
         })
         .collect()
 }
 
 #[test]
-fn buckets_to_fetch_none_last_returns_all() {
-    let grouped = groups_at(&[25, 50, 75]);
-    let to_fetch = buckets_to_fetch(&grouped, None);
+fn only_strictly_newer_timestamp_buckets_are_fetched() {
+    let grouped = groups_at(&[60, 120, 180]);
     assert_eq!(
-        to_fetch
+        buckets_to_fetch(&grouped, None)
             .iter()
-            .map(|group| group.bucket_block)
+            .map(|group| group.bucket_ts)
             .collect::<Vec<_>>(),
-        vec![25, 50, 75]
+        vec![60, 120, 180]
     );
-}
-
-#[test]
-fn buckets_to_fetch_skips_already_fetched_buckets() {
-    let grouped = groups_at(&[25, 50, 75]);
-    let to_fetch = buckets_to_fetch(&grouped, Some(50));
     assert_eq!(
-        to_fetch
+        buckets_to_fetch(&grouped, Some(120))
             .iter()
-            .map(|group| group.bucket_block)
+            .map(|group| group.bucket_ts)
             .collect::<Vec<_>>(),
-        vec![75]
+        vec![180]
     );
-}
-
-#[test]
-fn buckets_to_fetch_all_already_fetched_returns_empty() {
-    let grouped = groups_at(&[25, 50, 75]);
-    let to_fetch = buckets_to_fetch(&grouped, Some(75));
-    assert!(to_fetch.is_empty());
+    assert!(buckets_to_fetch(&grouped, Some(180)).is_empty());
 }

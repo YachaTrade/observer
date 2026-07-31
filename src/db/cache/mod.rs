@@ -34,6 +34,11 @@ fn take_price_blocks_before_or_equal(
     removed
 }
 
+fn to_postgres_block_number(block_number: u64) -> Result<i64> {
+    i64::try_from(block_number)
+        .map_err(|_| anyhow!("block_number={block_number} is out of PostgreSQL BIGINT range"))
+}
+
 /// Token 정보 캐싱을 위한 관리자 구조체
 /// Redis를 1차 캐시로 사용하고, PostgreSQL을 2차 저장소로 사용합니다.
 pub struct CacheManager {
@@ -165,7 +170,7 @@ impl CacheManager {
     /// StreamManager 초기화 후 호출하여 시작 블록부터 최신 블록까지의 price를 로드
     pub async fn load_initial_prices_from_stream(&self) -> Result<()> {
         let price_block_range = STREAM_MANAGER.get_event_block_range(EventType::Price).await;
-        let start_block = price_block_range.from_block as i64;
+        let start_block = to_postgres_block_number(price_block_range.from_block)?;
 
         let prices: Vec<(String, i64, BigDecimal)> =
             sqlx::query_as::<_, (String, i64, BigDecimal)>(
@@ -1480,7 +1485,12 @@ impl CacheManager {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::take_price_blocks_before_or_equal;
+    use super::{take_price_blocks_before_or_equal, to_postgres_block_number};
+
+    #[test]
+    fn postgres_block_number_rejects_overflow() {
+        assert!(to_postgres_block_number(i64::MAX as u64 + 1).is_err());
+    }
 
     #[test]
     fn price_cleanup_handles_future_canonical_insert_before_older_receiver_batch() {

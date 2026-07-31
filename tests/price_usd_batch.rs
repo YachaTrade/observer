@@ -17,6 +17,9 @@ use observer::event::common::price_usd::{
 
 const TIP_THRESHOLD: u64 = 120;
 const SEARCH_WIDTH: u64 = 3600;
+const TIP_BUCKET_TS: u64 = 999_960;
+const PAST_BUCKET_TS: u64 = 994_980;
+const NEXT_BUCKET_TS: u64 = 995_040;
 
 fn bd(value: &str) -> BigDecimal {
     BigDecimal::from_str(value).unwrap()
@@ -236,13 +239,13 @@ async fn tip_batch_dispatches_current_and_stamps_dense() {
     assert!(all_ok);
     assert_eq!(provider.calls(), vec!["current".to_string()]);
     assert_eq!(events.len(), 5, "one row per block");
-    assert_eq!(last_fetched, Some(50));
+    assert_eq!(last_fetched, Some(TIP_BUCKET_TS));
 }
 
 #[tokio::test]
 async fn past_batch_dispatches_historical_at_bucket_timestamp() {
     let now = 1_000_000;
-    let base = now - 5_000;
+    let base = PAST_BUCKET_TS + 20;
     let blocks = batch(50, 3, base);
     let provider = RecordingProvider::new("0.0226", None);
     let targets = vec![target("0xTKN")];
@@ -263,15 +266,17 @@ async fn past_batch_dispatches_historical_at_bucket_timestamp() {
     .await;
 
     assert!(all_ok);
-    assert_eq!(provider.calls(), vec![format!("historical:{base}")]);
+    assert_eq!(
+        provider.calls(),
+        vec![format!("historical:{PAST_BUCKET_TS}")]
+    );
 }
 
 #[tokio::test]
 async fn fetch_failure_leaves_all_caller_state_unchanged() {
     let now = 1_000_000;
-    let base = now - 5_000;
-    let mut blocks = batch(50, 25, base);
-    blocks.extend(batch(75, 3, base + 25));
+    let mut blocks = batch(50, 30, PAST_BUCKET_TS);
+    blocks.extend(batch(80, 3, NEXT_BUCKET_TS));
     let provider = RecordingProvider::new("0.0226", Some(1));
     let targets = vec![target("0xTKN")];
     let original_prices = HashMap::from([(
@@ -282,7 +287,7 @@ async fn fetch_failure_leaves_all_caller_state_unchanged() {
         },
     )]);
     let mut last_good = original_prices.clone();
-    let mut last_fetched = Some(25);
+    let mut last_fetched = Some(PAST_BUCKET_TS - 60);
 
     let (events, all_ok) = build_bucket_events(
         &provider,
@@ -299,7 +304,7 @@ async fn fetch_failure_leaves_all_caller_state_unchanged() {
 
     assert!(!all_ok);
     assert!(events.is_empty());
-    assert_eq!(last_fetched, Some(25));
+    assert_eq!(last_fetched, Some(PAST_BUCKET_TS - 60));
     assert_eq!(last_good, original_prices);
 }
 
@@ -362,9 +367,8 @@ async fn cold_start_missing_confidence_rejects_batch_without_advancing() {
 #[tokio::test]
 async fn retry_refetches_every_bucket_without_historical_restamping_corruption() {
     let now = 1_000_000;
-    let base = now - 5_000;
-    let mut blocks = batch(50, 25, base);
-    blocks.extend(batch(75, 3, base + 25));
+    let mut blocks = batch(50, 30, PAST_BUCKET_TS);
+    blocks.extend(batch(80, 3, NEXT_BUCKET_TS));
     let targets = vec![target("0xTKN")];
     let mut last_good = HashMap::new();
     let mut last_fetched = None;
@@ -405,19 +409,19 @@ async fn retry_refetches_every_bucket_without_historical_restamping_corruption()
     .await;
 
     assert!(all_ok);
-    assert_eq!(events.len(), 28);
+    assert_eq!(events.len(), 33);
     assert!(
         events
             .iter()
-            .filter(|event| event.block_number < 75)
+            .filter(|event| event.block_number < 80)
             .all(|event| event.price == bd("10"))
     );
     assert!(
         events
             .iter()
-            .filter(|event| event.block_number >= 75)
+            .filter(|event| event.block_number >= 80)
             .all(|event| event.price == bd("20"))
     );
-    assert_eq!(last_fetched, Some(75));
+    assert_eq!(last_fetched, Some(NEXT_BUCKET_TS));
     assert_eq!(last_good["0xTKN"].price, bd("20"));
 }

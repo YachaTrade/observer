@@ -22,15 +22,14 @@ Price 모듈은 온체인 이벤트가 아닌 **Pyth Oracle API**에서 가격 �
 ### Stream 처리
 
 1. **1,000블록 cycle 구성**: inclusive range의 끝을 `from_block + 999`로 제한해 한 cycle에서 정확히 1,000블록을 처리한다.
-2. **100블록 canonical bucket 구성**: 각 블록을 `block - (block % 100)` 경계로 묶는다.
-3. **canonical timestamp 조회**: 실제 처리 블록 전체가 아니라 각 bucket 경계 블록의 timestamp만 Redis/single-flight 캐시와 RPC를 통해 조회한다. 중간 bucket부터 시작하는 1,000블록 cycle은 최대 11개 timestamp만 필요하다.
-4. **canonical 가격 캐시 확인**: quote별로 bucket 경계 블록의 exact price cache를 조회한다.
-5. **가격 캐시 미스 복구**: 하나라도 없으면 canonical timestamp로 모든 quote feed를 Pyth에서 한 번에 batch 조회한다.
-6. **canonical 캐시 저장**: 새로 조회한 가격은 bucket 경계 블록으로 인메모리 캐시에 즉시 저장한다. 따라서 중간 블록부터 시작해도 같은 bucket에서 Pyth를 다시 호출하지 않는다.
-7. **블록별 이벤트 생성**: bucket의 모든 실제 처리 블록에 canonical 가격을 복제한다. 각 이벤트는 원래 `block_number`를 유지하고, `block_timestamp`와 DB의 `price.created_at`은 bucket 경계 블록의 timestamp를 공유한다.
-8. **Receiver 전달**: 기존 range batch로 전달하며 receiver가 실제 블록별 cache/DB row를 저장하고 Price checkpoint를 갱신한다.
-
-캐시에 없는 경계 블록이 현재 처리 range 밖에 있더라도 DB에 가상 경계 row를 만들지 않는다. DB와 Price checkpoint에는 실제 처리한 블록만 반영된다.
+2. **블록 timestamp 조회**: 처리 범위의 각 블록 timestamp를 조회한다. 하나라도 조회하지 못하면 해당 cycle은 checkpoint를 전진시키지 않는다.
+3. **timestamp bucket 구성**: cycle 시작 시 `now`를 한 번만 샘플링한다. `now` 기준 300초 이내 블록은 60초 wall-clock grid로, 더 오래된 블록은 600초 grid로 묶는다. bucket key 자체가 Pyth historical query timestamp다.
+4. **PostgreSQL 완전성 확인**: 각 bucket의 모든 요청 블록 × 모든 quote에 exact `price` row가 있는지 canonical PostgreSQL 테이블에서 확인한다. 완전한 bucket만 건너뛰며, interior gap, quote 하나의 누락, DB 오류는 모두 미완료로 처리한다. 인메모리 cache만 존재하는 row는 persisted evidence로 인정하지 않는다.
+5. **새 bucket 가격 조회**: 아직 성공하지 않은 bucket은 모든 quote feed를 한 번의 Pyth batch 요청으로 조회한다.
+6. **cross-cycle 재사용**: 성공한 bucket timestamp와 quote 가격을 stream loop 밖에 유지한다. 다음 cycle이 같은 bucket에 새 블록을 추가하면 Pyth를 재호출하지 않고 그 bucket에서 이미 받은 가격으로 새 블록 row를 생성한다.
+7. **블록별 이벤트 생성**: 성공한 bucket의 모든 실제 처리 블록 × quote에 dense row를 만든다. 각 row는 원래 `block_number`와 원래 `block_timestamp`를 유지한다.
+8. **실패와 checkpoint**: fetch가 실패한 bucket은 이웃 bucket 가격으로 채우지 않는다. partial cycle 전체를 receiver에 보내지 않고 두 Price checkpoint를 모두 유지해 다음 cycle에서 gap을 다시 처리한다. 재사용 cache는 정확히 같은 timestamp bucket에만 적용하며, 이후 bucket의 성공 가격이 실패 이전 bucket 상태를 덮어쓰지 않는다.
+9. **Receiver 전달**: provider 결과가 완전한 dense row batch만 acknowledged Price channel로 전달한다. 모든 quote의 PostgreSQL 저장이 성공하고 receiver가 확인한 뒤에만 receive/stream checkpoint를 갱신한다. DB 오류는 producer까지 전파되어 supervisor 재시작과 안전한 replay를 유도한다.
 
 ### Pyth 요청 제한
 
@@ -41,9 +40,10 @@ Price 모듈은 온체인 이벤트가 아닌 **Pyth Oracle API**에서 가격 �
 
 ### Receive 처리
 
-1. **quote별 그룹핑**: 이벤트를 quote_id로 분류
-2. **인메모리 캐시 저장**: `insert_price_batch_for_quote()` — DashMap에 (block_number → price) 캐시
-3. **DB 저장**: `price` 테이블에 batch INSERT (quote_id, block_number, price, created_at)
+1. **quote별 그룹핑**: 이벤트를 quote_id와 block 순서로 정렬해 하나의 multi-quote batch를 구성한다.
+2. **원자적 DB 저장**: 전체 quote batch를 한 PostgreSQL transaction에서 `price` 테이블에 저장한다. 하나라도 실패하면 전부 rollback하고 acknowledgment를 실패시킨다.
+3. **canonical row 재조회**: conflict row를 포함한 실제 PostgreSQL 값을 transaction 안에서 다시 읽는다.
+4. **인메모리 캐시 저장**: commit 이후 canonical row만 `insert_price_batch_for_quote()`로 DashMap에 저장한다.
 
 ### 다운스트림 사용
 
