@@ -1,9 +1,4 @@
-use std::{
-    collections::HashMap,
-    future::Future,
-    str::FromStr,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::{collections::HashMap, future::Future, str::FromStr, time::Duration};
 
 use anyhow::{Context, Result};
 use bigdecimal::BigDecimal;
@@ -91,7 +86,7 @@ pub async fn stream_events(event_type: EventType) -> Result<()> {
             price_provider.as_ref(),
             &targets,
             &blocks,
-            unix_now_secs(),
+            crate::event::common::unix_now_secs(),
             TIP_THRESHOLD_SECS,
             HISTORICAL_SEARCH_WIDTH_SECS,
             &min_confidence,
@@ -168,7 +163,6 @@ pub async fn build_bucket_events(
     last_fetched_bucket: &mut Option<u64>,
 ) -> (Vec<PriceUsdRow>, bool) {
     let coin_refs = distinct_query_coin_refs(targets);
-    let block_timestamps: HashMap<u64, u64> = blocks.iter().copied().collect();
     let mut candidate_prices = last_good_prices.clone();
     let mut candidate_last_fetched = *last_fetched_bucket;
     let mut events = Vec::new();
@@ -177,15 +171,11 @@ pub async fn build_bucket_events(
         let has_unpriced_target = targets
             .iter()
             .any(|target| !candidate_prices.contains_key(&target.token_id));
-        let should_fetch = candidate_last_fetched.is_none_or(|last| bucket.bucket_block > last)
+        let should_fetch = candidate_last_fetched.is_none_or(|last| bucket.bucket_ts > last)
             || has_unpriced_target;
         if should_fetch {
             if !targets.is_empty() {
-                let bucket_timestamp = block_timestamps
-                    .get(&bucket.bucket_block)
-                    .copied()
-                    .unwrap_or(bucket.bucket_ts);
-                let fetch_kind = select_fetch(bucket_timestamp, now, tip_threshold_secs);
+                let fetch_kind = select_fetch(bucket.bucket_ts, now, tip_threshold_secs);
                 let fetched = match fetch_kind {
                     FetchKind::Current => provider.fetch_current(&coin_refs).await,
                     FetchKind::Historical(timestamp) => {
@@ -205,7 +195,7 @@ pub async fn build_bucket_events(
                     Err(error) => {
                         warn!(
                             "[PRICE_USD] DefiLlama fetch failed for bucket {}; aborting batch: {:#}",
-                            bucket.bucket_block, error
+                            bucket.bucket_ts, error
                         );
                         return (Vec::new(), false);
                     }
@@ -218,11 +208,11 @@ pub async fn build_bucket_events(
             {
                 warn!(
                     "[PRICE_USD] No accepted fresh or prior price for token {} in bucket {}; aborting batch",
-                    target.token_id, bucket.bucket_block
+                    target.token_id, bucket.bucket_ts
                 );
                 return (Vec::new(), false);
             }
-            candidate_last_fetched = Some(bucket.bucket_block);
+            candidate_last_fetched = Some(bucket.bucket_ts);
         }
 
         for target in targets {
@@ -236,7 +226,7 @@ pub async fn build_bucket_events(
             } else if !bucket.blocks.is_empty() {
                 debug!(
                     "[PRICE_USD] Cold start for token {}; no rows for bucket {}",
-                    target.token_id, bucket.bucket_block
+                    target.token_id, bucket.bucket_ts
                 );
             }
         }
@@ -306,11 +296,4 @@ pub async fn load_price_usd_targets() -> Result<Vec<PriceUsdTarget>> {
             query_id: row.get("price_usd_source_id"),
         })
         .collect())
-}
-
-fn unix_now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0)
 }

@@ -6,10 +6,11 @@
 
 mod common;
 
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use anyhow::Result;
 use bigdecimal::BigDecimal;
+use observer::db::postgres::{PostgresDatabase, controller::price::PriceController};
 
 // ============================================================================
 // chart.rs tests — price_history INSERT + batch INSERT
@@ -219,41 +220,49 @@ async fn price_insert_duplicate_ignored() -> Result<()> {
     Ok(())
 }
 
-/// Batch insert multiple prices via UNNEST.
+/// Persist multiple prices through the atomic controller API.
 #[tokio::test]
 async fn price_batch_insert_happy_path() -> Result<()> {
     let db = common::setup_test_db().await?;
     let pool = &db.pool;
-
-    let block_numbers: Vec<i64> = vec![700, 701, 702];
+    let controller = PriceController::new(Arc::new(PostgresDatabase { pool: pool.clone() }));
     let prices = vec![
-        BigDecimal::from_str("10.0")?,
-        BigDecimal::from_str("20.0")?,
-        BigDecimal::from_str("30.0")?,
+        (
+            "0xQuoteCCC".to_string(),
+            700,
+            BigDecimal::from_str("10.0")?,
+            7000,
+        ),
+        (
+            "0xQuoteCCC".to_string(),
+            701,
+            BigDecimal::from_str("20.0")?,
+            7001,
+        ),
+        (
+            "0xQuoteCCC".to_string(),
+            702,
+            BigDecimal::from_str("30.0")?,
+            7002,
+        ),
     ];
-    let timestamps: Vec<i64> = vec![7000, 7001, 7002];
-
-    sqlx::query(observer::db::postgres::controller::price::BATCH_INSERT_PRICES_SQL)
-        .bind("0xQuoteCCC") // $1 quote_id (scalar)
-        .bind(&block_numbers) // $2
-        .bind(&prices) // $3
-        .bind(&timestamps) // $4
-        .execute(pool)
-        .await?;
+    let canonical = controller.persist_price_batch(&prices).await?;
 
     let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM price WHERE quote_id = $1")
         .bind("0xQuoteCCC")
         .fetch_one(pool)
         .await?;
     assert_eq!(row.0, 3);
+    assert_eq!(canonical.len(), 3);
     Ok(())
 }
 
-/// Batch insert with partial duplicate — only new rows land.
+/// A partial duplicate keeps the persisted canonical value and lands new rows.
 #[tokio::test]
 async fn price_batch_insert_partial_duplicate() -> Result<()> {
     let db = common::setup_test_db().await?;
     let pool = &db.pool;
+    let controller = PriceController::new(Arc::new(PostgresDatabase { pool: pool.clone() }));
 
     // Seed one row
     sqlx::query(observer::db::postgres::controller::price::INSERT_PRICE_SQL)
@@ -264,24 +273,31 @@ async fn price_batch_insert_partial_duplicate() -> Result<()> {
         .execute(pool)
         .await?;
 
-    // Batch includes block 800 (dup) + block 801 (new)
-    let block_numbers: Vec<i64> = vec![800, 801];
-    let prices = vec![BigDecimal::from_str("50.0")?, BigDecimal::from_str("60.0")?];
-    let timestamps: Vec<i64> = vec![8000, 8001];
-
-    sqlx::query(observer::db::postgres::controller::price::BATCH_INSERT_PRICES_SQL)
-        .bind("0xQuoteDDD")
-        .bind(&block_numbers)
-        .bind(&prices)
-        .bind(&timestamps)
-        .execute(pool)
-        .await?;
+    // Replaying block 800 with a different fetched value must not replace the
+    // stored canonical value; block 801 should still be inserted.
+    let prices = vec![
+        (
+            "0xQuoteDDD".to_string(),
+            800,
+            BigDecimal::from_str("999.0")?,
+            8000,
+        ),
+        (
+            "0xQuoteDDD".to_string(),
+            801,
+            BigDecimal::from_str("60.0")?,
+            8001,
+        ),
+    ];
+    let canonical = controller.persist_price_batch(&prices).await?;
 
     let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM price WHERE quote_id = $1")
         .bind("0xQuoteDDD")
         .fetch_one(pool)
         .await?;
     assert_eq!(row.0, 2);
+    assert_eq!(canonical[0].2, BigDecimal::from_str("50.0")?);
+    assert_eq!(canonical[1].2, BigDecimal::from_str("60.0")?);
     Ok(())
 }
 
